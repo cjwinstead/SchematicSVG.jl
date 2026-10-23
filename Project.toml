@@ -1,0 +1,13 @@
+name = "SchematicSVG"
+uuid = "fe0f8afc-60ab-40bb-850f-aaaf3f1447e3"
+authors = ["Chris Winstead <chris.winstead@gmail.com>"]
+version = "0.3.0"
+
+[compat]
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
