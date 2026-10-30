@@ -1,7 +1,7 @@
 name = "SchematicSVG"
 uuid = "fe0f8afc-60ab-40bb-850f-aaaf3f1447e3"
 authors = ["Chris Winstead <chris.winstead@gmail.com>"]
-version = "0.7.0"
+version = "0.7.1-DEV"
 
 [weakdeps]
 Microelectronics = "7558d6fc-9aaf-4343-9ca4-2cb62773acb1"
