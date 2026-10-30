@@ -5,6 +5,7 @@ Base.@kwdef struct Schematic
     stroke::String = "#222"
     background::String = "white" # "none" for transparent
     font::String = "serif"
+    values::Dict{String,Any} = Dict{String,Any}()   # raw element values/objects, by NAME
 end
 Schematic(items::AbstractVector; kw...) = Schematic(; items=collect(Placed, items), kw...)
 

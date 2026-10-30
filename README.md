@@ -4,6 +4,10 @@ Dependency-free circuit schematics for Jupyter notebooks. Schematics render as i
 SVG, so the drawing is stored inside the `.ipynb` itself: no image files, no LaTeX, no
 external tools.
 
+Schematics can also be turned back into netlists: SPICE text, or
+[Microelectronics.jl](https://github.com/cjwinstead/Microelectronics.jl) objects ready to
+simulate (see [Netlists and simulation](#netlists-and-simulation)).
+
 There are three ways to build a schematic:
 
 - **CircuiTikZ** — paste (or generate) CircuiTikZ code and display it directly.
@@ -178,6 +182,109 @@ SchematicSVG.annotation(e::MyElement)   = e.params[:R]
 hand-placed ones (give each element a `name`). `si(4700, "Ω") == "4.7 kΩ"` is exported
 for your own labels.
 
+## Netlists and simulation
+
+Any schematic (ASCII, CircuiTikZ or placed primitives) can be netlisted. With
+Microelectronics.jl loaded, `to_microelectronics` returns its element objects:
+
+```julia
+using SchematicSVG, Microelectronics
+
+amp = """
+              vdd               vdd
+               |                 |
+               RB1               RC
+               |                 |
+               |                 +---C2---+--@vo
+               |                 |        |
+   +--RS--C1---+--@vb-----------|Q1       RL
+   |           |                 |        |
+   VS          RB2               RE      gnd
+   |           |                 |
+  gnd         gnd               gnd
+"""
+
+# The nodes given here are placeholders: the drawing supplies the real ones.
+parts = [Resistor("RB1", 0, 0, 47u"kΩ"), Resistor("RB2", 0, 0, 10u"kΩ"),
+         Resistor("RC", 0, 0, 4.7u"kΩ"), Resistor("RE", 0, 0, 1u"kΩ"),
+         Resistor("RL", 0, 0, 10u"kΩ"), Resistor("RS", 0, 0, 50u"Ω"),
+         Capacitor("C1", 0, 0, 10u"μF"), Capacitor("C2", 0, 0, 2.2u"μF"),
+         Vsin("VS", 0, 0; amplitude=10u"mV", frequency=1u"kHz")]
+
+s = ascii_schematic(amp; elements=parts)          # the drawing, annotated with the values
+ckt = to_microelectronics(s; elements=Dict("Q1" => "Q2N3904"), supplies=Dict("vdd" => 12u"V"))
+build_netlist(; ckt...)                           # ckt = (; sources, components)
+simulate(:tran; tstep=10u"μs", tmax=3u"ms")
+```
+
+Without Microelectronics.jl, `spice_netlist(s; title, include, elements, supplies)`
+returns SPICE text and `schematic_netlist(s; elements, supplies)` the devices and nodes
+(it displays as SPICE lines).
+
+**Connectivity** comes from the geometry: wire ends, pins and markers at the same point
+are one node, and a point lying on a wire (a T-junction) joins it. Wires that only cross
+(`)` in ASCII, or two CircuiTikZ wires crossing mid-segment) stay separate.
+
+**Node names**: ground symbols are `0`; supply symbols name their node (`vdd`, `vcc`,
+`vss`…; several symbols with the same name are one node); terminals and `@` tags name
+theirs (`vin`, `vo`); the rest are `n1`, `n2`, …. Two names on one wire give a warning.
+
+**Values** for each instance (matched case-insensitively, by drawn name or SPICE name, so
+`N1` matches Microelectronics' `MN1`) come from, in order:
+
+1. `elements` passed to `to_microelectronics` / `schematic_netlist`;
+2. the elements the schematic was annotated with (`ascii_schematic(…; elements)`,
+   `annotate`), kept with the schematic;
+3. the drawing's text: notes and `l=`/`a=` labels such as `4.7 kΩ`, `10<\micro F>`,
+   `R_1 = 1k`, or a model name. Prefixes are SI (`M` is mega; `meg` also works).
+
+Element objects you supply are reused with the drawn nodes, so their values, models,
+waveforms and instance parameters carry over. Plain values work too:
+
+| Device | Value |
+|---|---|
+| R, C, L | number, quantity, `Symbol` (written as a `{param}`), or SPICE text |
+| V, I | number/quantity (DC), a `Waveform` or vector of them, or SPICE text such as `"SIN(0 1 1k)"` |
+| sinusoidal (`sV`) | NamedTuple `(amplitude=…, frequency=…, offset=…)`, or an amplitude |
+| E, G (voltage-controlled) | `(gain, ("ctrl+", "ctrl-"))`, or a `VCVS`/`VCCS` object |
+| H, F (current-controlled) | `(gain, "Vsense")`, or a `CCVS`/`CCCS` object |
+| MOSFET | model name, or NamedTuple `(model=…, W=…, L=…, body=…)`; body tied to source otherwise |
+| BJT, diode, op-amp | model name |
+
+Devices without a value are written as `{name}` parameters (with a warning). Models default
+to the Microelectronics library: `ald1105n`/`ald1105p`, `Q2N3904`/`Q2N3906`, `D1N914`,
+`ideal_opamp`. Supplies need a voltage: `supplies=Dict("vdd" => 5u"V")` adds a `Vdc`
+source for each. Dangling pins, unknown elements (drawn as boxes) and nodes with two names
+produce warnings; a dependent source without its control is an error.
+
+**Nodes with no DC path to ground** also warn, because SPICE can't find an operating
+point for them. This is usually an output or input reached only through a coupling
+capacitor (or a current source), and the warning names the node and suggests the fix: a
+load resistor between that node and ground, or a bias resistor when the node drives a
+MOSFET gate or an op-amp input. For example, `+---C2---vo` with nothing else at `vo` gives
+
+```
+node vo has no DC path to ground, so SPICE can't find the operating point (it connects
+only through capacitors, current sources or high-impedance inputs). Add a load resistor
+between vo and ground.
+```
+
+A schematic with no ground symbol at all gets its own warning.
+
+### Subcircuits
+
+`to_subcircuit(s; name, terminals, parameters, rename)` returns a Microelectronics
+`Subcircuit`, and `spice_subcircuit(s; name, terminals, params, rename)` the
+`.subckt … .ends` text. Terminals and supply nodes are connected outside, so they don't
+trigger the DC-path or supply warnings; `rename` maps drawn names to netlist names, e.g.
+`Dict("vdd" => "vdd!", "vss" => "vss!")` for global supplies (declare them in the
+enclosing netlist with `.global vdd! vss!`). The same `rename` and `external` keywords work
+on `schematic_netlist`. `examples/mos_amplifiers.ipynb` builds common-source,
+source-follower, common-gate and differential-pair subcircuits this way.
+
+`SchematicSVG.Opamp` (the drawing primitive) is not exported, so it doesn't clash with
+Microelectronics' `Opamp`.
+
 ## Placed primitives
 
 Coordinates are in CircuiTikZ units with y pointing up.
@@ -219,3 +326,7 @@ per unit, line colour, background (`"none"` for transparent) and label font.
 ```julia
 using Pkg; Pkg.test("SchematicSVG")
 ```
+
+`test/microelectronics.jl` tests the Microelectronics.jl extension (including ngspice
+operating points). It runs as part of the suite when Microelectronics is installed, or on
+its own from an environment with both packages: `include("test/microelectronics.jl")`.

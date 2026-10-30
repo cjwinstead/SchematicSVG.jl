@@ -300,4 +300,220 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test first(SchematicSVG.texlabel(raw"$\Delta V_{\text{out}}$")) == "ΔV<tspan dy=\"4\" font-size=\"10.5\">out</tspan>"
         @test SchematicSVG.siunitx(raw"4.7<\kilo\ohm>") == "4.7 kΩ"
     end
+
+    @testset "netlist" begin
+        cmos = """
+                     vdd
+                      |
+                +---|P1
+                |     |
+          in----*     +--@out--+
+                |     |        |
+                +---|N1        CL
+                |     |        |
+                V1   gnd      gnd
+                |
+               gnd
+        """
+        n = schematic_netlist(ascii_schematic(cmos); elements=Dict("V1" => 0, "CL" => 1e-12),
+                              supplies=Dict("vdd" => 5))
+        dev(nm) = only(filter(d -> d.name == nm, n.devices))
+        @test dev("P1").kind == :pmos && dev("P1").nodes == ["out", "in", "vdd"]   # D, G, S
+        @test dev("N1").kind == :nmos && dev("N1").nodes == ["out", "in", "0"]
+        @test dev("CL").nodes == ["out", "0"] && dev("V1").nodes == ["in", "0"]
+        @test n.supplies == ["vdd" => 5]
+        txt = sprint(print, n)
+        @test occursin("VDD vdd 0 DC 5\n", txt)
+        @test occursin("MP1 out in vdd vdd ald1105p\n", txt)                       # body = source
+        @test occursin("MN1 out in 0 0 ald1105n\n", txt)
+        @test occursin("CL out 0 1.0e-12\n", txt) && occursin("V1 in 0 DC 0\n", txt)
+        sp = spice_netlist(ascii_schematic(cmos); title="inv", include="lib.sp",
+                           elements=Dict("V1" => 0, "CL" => 1e-12), supplies=Dict("vdd" => 5))
+        @test startswith(sp, "* inv\n.include lib.sp\n") && endswith(sp, ".end\n")
+
+        # crossings don't connect; a wire carrying two names warns
+        cross = """
+               vdd
+                |
+                R1
+                |
+          a-----)-----b
+                |
+                R2
+                |
+               gnd
+        """
+        n = @test_logs (:warn, r"two names") match_mode=:any schematic_netlist(ascii_schematic(cross);
+                        elements=Dict("R1" => 1e3, "R2" => 1e3), supplies=Dict("vdd" => 2))
+        @test [d.nodes for d in n.devices] == [["vdd", "n1"], ["n1", "0"]]
+
+        # CircuiTikZ: values read from the drawing, two V_CC symbols are one node
+        amp = raw"""
+        \begin{circuitikz}
+          \draw (0,0) node[ground]{} to[V, l=$v_{in}$] (0,2) to[C=$C_1$, a=10<\micro F>] (2,2) coordinate(B)
+                to[R=$R_{B1}$, a=47<\kilo\ohm>, *-] (2,5) node[vcc]{$V_{CC}$};
+          \draw (B) to[R=$R_{B2}$, a=10<\kilo\ohm>] (2,0) node[ground]{};
+          \draw (B) -- (3.5,2) node[npn, anchor=B](Q1){$Q_1$};
+          \draw (Q1.C) to[R=$R_C$, a=4.7k] ++(0,2.23) node[vcc]{$V_{CC}$};
+          \draw (Q1.E) to[R=$R_E$, a=1k] ++(0,-1.23) node[ground]{};
+          \draw (Q1.C) to[short, *-o] ++(1.5,0) node[right]{$v_o$};
+        \end{circuitikz}"""
+        n = schematic_netlist(tikz_schematic(amp); elements=Dict("vin" => 0), supplies=Dict("vcc" => 12))
+        @test dev("C1").value == 1e-5 && dev("RB1").value == 47e3 && dev("RC").value == 4700
+        @test dev("Q1").kind == :npn && dev("Q1").nodes == ["vo", "n2", "n3"]        # C, B, E
+        @test dev("RB1").nodes == ["n2", "vcc"] && dev("RC").nodes == ["vo", "vcc"]
+        @test dev("vin").nodes == ["0", "n1"]                    # '+' at the path start
+        @test n.supplies == ["vcc" => 12]
+        @test occursin("Q1 vo n2 n3 Q2N3904\n", sprint(print, n))
+
+        # dependent sources need (gain, control); polarity follows the drawing
+        dep = """
+          +---V1---+---R1---+--@x
+          |                 |
+         gnd                R2
+                            |
+                           gnd
+                                 +---E1---+--@y
+                                 |        |
+                                gnd       R3
+                                          |
+                                         gnd
+        """
+        vals = Dict("V1" => 2, "R1" => 1e3, "R2" => 1e3, "R3" => 1e3)
+        n = schematic_netlist(ascii_schematic(dep); elements=merge(vals, Dict("E1" => (10, ("x", "0")))))
+        @test occursin("E1 0 y x 0 10\n", sprint(print, n))
+        @test occursin("H1 0 y Vsense 5\n", sprint(print, schematic_netlist(
+            ascii_schematic(replace(dep, "E1" => "H1")); elements=merge(vals, Dict("H1" => (5, "Vsense"))))))
+        @test_throws ArgumentError schematic_netlist(ascii_schematic(dep); elements=merge(vals, Dict("E1" => 10)))
+
+        # values: elements given at annotation time are kept; missing ones become {name}
+        rc = """
+          in--R1--+--out
+                  |
+                  C1
+                  |
+                 gnd
+        """
+        s = ascii_schematic(rc; elements=[Res("R1", 4700)])
+        n = @test_logs (:warn, r"no value for C1") match_mode=:any schematic_netlist(s)
+        @test only(filter(d -> d.name == "R1", n.devices)).value isa Res
+        @test occursin("R1 in out 4700\n", sprint(print, n)) && occursin("C1 out 0 {C1}\n", sprint(print, n))
+        @test only(filter(d -> d.name == "C1", schematic_netlist(s; elements=Dict("C1" => 1e-9)).devices)).value == 1e-9
+
+        # a dangling pin warns
+        @test_logs (:warn, r"not connected") match_mode=:any schematic_netlist(
+            ascii_schematic("  a--R1--b\n\n  R2\n  |\n gnd"); elements=Dict("R1" => 1, "R2" => 1))
+
+        @test parse_value("4.7 kΩ") == 4700 && parse_value("10µF") == 1e-5 && parse_value("2.2n") == 2.2e-9
+        @test parse_value("1e3") == 1000 && parse_value("5 V") == 5 && parse_value("1 MΩ") == 1e6
+        @test parse_value("1meg") == 1e6 && parse_value("-3 mA") == -3e-3 && parse_value("R1") === nothing
+
+        @test_throws ArgumentError to_microelectronics(ascii_schematic(rc))   # extension not loaded
+    end
+
+    @testset "DC paths to ground" begin
+        # capacitor-coupled input and output: both nodes float at DC
+        amp = """
+                 vdd               vdd
+                  |                 |
+                  RB1               RC
+                  |                 |
+                  |                 +---C2---vo
+                  |                 |
+           in--C1-+--@vb-----------|Q1
+                  |                 |
+                  RB2               RE
+                  |                 |
+                 gnd               gnd
+        """
+        vals = Dict("RB1" => 47e3, "RB2" => 10e3, "RC" => 4.7e3, "RE" => 1e3,
+                    "C1" => 10e-6, "C2" => 2.2e-6, "Q1" => "Q2N3904")
+        @test_logs((:warn, r"node vo has no DC path to ground.*load resistor between vo and ground"),
+                   (:warn, r"node in has no DC path to ground.*load resistor between in and ground"),
+                   schematic_netlist(ascii_schematic(amp); elements=vals, supplies=Dict("vdd" => 12)))
+        # adding the load resistors silences it
+        fixed = """
+                 vdd               vdd
+                  |                 |
+                  RB1               RC
+                  |                 |
+                  |                 +---C2---+---vo
+                  |                 |        |
+          in-+-C1-+--@vb-----------|Q1       RL
+             |    |                 |        |
+             RI   RB2               RE      gnd
+             |    |                 |
+            gnd  gnd               gnd
+        """
+        @test_logs schematic_netlist(ascii_schematic(fixed); elements=merge(vals, Dict("RL" => 1e4, "RI" => 1e6)),
+                                     supplies=Dict("vdd" => 12))
+        # a MOSFET gate reached only through a capacitor needs a bias resistor
+        gate = """
+                vdd
+                 |
+                 RD
+                 |
+          +--C1-|N1
+          |      |
+          VS    gnd
+          |
+         gnd
+        """
+        @test_logs (:warn, r"no DC path.*bias resistor between n\d+ and ground") schematic_netlist(
+            ascii_schematic(gate); elements=Dict("RD" => 1e4, "C1" => 1e-6, "VS" => 0), supplies=Dict("vdd" => 5))
+        # op-amp outputs are driven; inputs are not
+        oa = """
+                    +--gnd
+                    |
+                    OA1-------+---vout
+                    |         |
+          vin--C1---+---R2----+
+        """
+        @test_logs (:warn, r"node vin has no DC path.*load resistor between vin") schematic_netlist(
+            ascii_schematic(oa); elements=Dict("C1" => 1e-6, "R2" => 1e4))
+        g, hz = SchematicSVG.dc_floating_groups(
+            [NetDevice("R1", :R, ["a", "b"], 1), NetDevice("C1", :C, ["b", "0"], 1)], String[])
+        @test g == [["a", "b"]]
+        @test_logs (:warn, r"no ground symbol") schematic_netlist(ascii_schematic("  a--R1--b"); elements=Dict("R1" => 1))
+    end
+
+    @testset "subcircuits" begin
+        cs = """
+                                 vdd
+                                  |
+                                  RD
+                                  |
+                                  +-@d-CC2----+--out
+                                  |           |
+          in----CC1--@g----+-----|N1          RL
+                           |      |           |
+                           RG     +-@s-+     gnd
+                           |      |    |
+                          gnd     I1   CB
+                                  |    |
+                                 vss  gnd
+        """
+        vals = Dict("RD" => 20e3, "RG" => 1e6, "RL" => 1e5, "CC1" => 1e-5, "CC2" => 1e-5,
+                    "CB" => 1e-4, "I1" => 1e-4, "N1" => (model="ald1105n", W=20e-6, L=10e-6))
+        # terminals and supplies are external: no DC-path or supply warnings
+        sub = @test_logs spice_subcircuit(ascii_schematic(cs; elements=vals); name="cs_nmos",
+                                         terminals=["in", "out"], rename=Dict("vdd" => "vdd!", "vss" => "vss!"))
+        @test startswith(sub, ".subckt cs_nmos in out\n") && endswith(sub, ".ends cs_nmos\n")
+        @test occursin("RD vdd! d 20000\n", sub) && occursin("I1 s vss! DC 0.0001\n", sub)
+        @test occursin("MN1 d g s s ald1105n W=2.0e-5 L=1.0e-5\n", sub)
+        @test occursin("CC1 in g 1.0e-5\n", sub) && occursin("CB s 0 0.0001\n", sub)
+        @test occursin(" params: Rx=5", spice_subcircuit(ascii_schematic(cs; elements=vals);
+                       name="x", terminals=["in", "out"], params=["Rx" => 5]))
+        @test_throws ArgumentError spice_subcircuit(ascii_schematic(cs; elements=vals); name="x", terminals=["in", "vo"])
+        # rename and external on a plain netlist
+        n = schematic_netlist(ascii_schematic(cs; elements=vals); rename=Dict("vdd" => "vdd!"),
+                              external=["in", "vdd", "vss"])
+        @test "vdd!" in n.nets && isempty(n.supplies)
+        @test_throws ArgumentError to_subcircuit(ascii_schematic(cs); name="x", terminals=["in"])   # extension not loaded
+    end
+end
+
+# The Microelectronics.jl extension, when that package is available.
+if Base.find_package("Microelectronics") !== nothing
+    include("microelectronics.jl")
 end
