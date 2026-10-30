@@ -429,6 +429,8 @@ end
 spicevalue(x::Symbol) = "{$x}"
 spicevalue(x::AbstractString) = String(x)
 spicevalue(x) = string(x)
+# Unitful quantities are handled by package extensions (plain SI numbers, or
+# Microelectronics' qstr when it is loaded), so "20 kΩ" never reaches a netlist.
 
 # Hook for package extensions: SPICE text for a device given as an element object.
 objectline(x, d::NetDevice) = nothing

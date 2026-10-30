@@ -7,8 +7,13 @@ module SchematicSVGMicroelectronicsExt
 using SchematicSVG
 using SchematicSVG: NetDevice, SchematicNetlist, DEFAULT_MODEL, spicename, rawvalue, controlspec,
                     subcircuit_netlist
-import SchematicSVG: to_microelectronics, to_subcircuit, objectline, annotation, valuetext, instancename
+import SchematicSVG: to_microelectronics, to_subcircuit, objectline, annotation, valuetext, instancename,
+                     spicevalue
 import Microelectronics as ME
+
+# SPICE text for quantities exactly as Microelectronics writes them (qstr: SI units, rad/s
+# as Hz). More specific than the Unitful extension's AbstractQuantity method.
+spicevalue(q::ME.Unitful.Quantity) = ME.qstr(q)
 
 # ─────────────── annotations from Microelectronics objects ───────────────
 # Components already have `name` and `value`/`model` fields; these cover the rest.

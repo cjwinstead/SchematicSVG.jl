@@ -221,6 +221,11 @@ Without Microelectronics.jl, `spice_netlist(s; title, include, elements, supplie
 returns SPICE text and `schematic_netlist(s; elements, supplies)` the devices and nodes
 (it displays as SPICE lines).
 
+Values may be Unitful quantities (`4.7u"kΩ"`, `10u"μF"`). The drawing shows them with
+their units, and SPICE text gets plain numbers: with Microelectronics.jl loaded they are
+formatted by its `qstr` (`4700`, `1e-05`), otherwise converted to SI units by a small
+Unitful extension (`4700`, `1.0e-5`). Units never reach the netlist.
+
 **Connectivity** comes from the geometry: wire ends, pins and markers at the same point
 are one node, and a point lying on a wire (a T-junction) joins it. Wires that only cross
 (`)` in ASCII, or two CircuiTikZ wires crossing mid-segment) stay separate.

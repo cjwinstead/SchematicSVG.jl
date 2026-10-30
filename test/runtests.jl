@@ -1,5 +1,6 @@
 using SchematicSVG
 using Test
+using Unitful          # loads SchematicSVGUnitfulExt
 
 # Stand-ins for the user's element structs
 struct Res; name::String; value::Float64; end
@@ -510,6 +511,41 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
                               external=["in", "vdd", "vss"])
         @test "vdd!" in n.nets && isempty(n.supplies)
         @test_throws ArgumentError to_subcircuit(ascii_schematic(cs); name="x", terminals=["in"])   # extension not loaded
+    end
+
+    @testset "quantities in SPICE text" begin
+        rc = """
+          in--R1--+--out
+                  |
+                  C1
+                  |
+                 gnd
+        """
+        s = ascii_schematic(rc; elements=Dict("R1" => 4.7u"kΩ", "C1" => 10u"μF"))
+        @test only(filter(b -> b isa Bipole && b.name == "R1", s.items)).note == "4.7 kΩ"   # drawing keeps units
+        txt = spice_netlist(s; external=["in"])
+        @test occursin("R1 in out 4700\n", txt) && occursin("C1 out 0 1.0e-5\n", txt)
+        @test !occursin("Ω", txt) && !occursin("μ", txt)
+        # supplies, MOSFET sizes, sine parameters, gains and subcircuit parameters too
+        inv = """
+                 vdd
+                  |
+            +---|P1
+            |     |
+      in----*     +--out
+            |     |
+            +---|N1
+                  |
+                 gnd
+        """
+        txt = spice_netlist(ascii_schematic(inv); external=["in", "out"], supplies=Dict("vdd" => 5u"V"),
+                            elements=Dict("N1" => (model="ald1105n", W=20u"μm", L=10u"μm")))
+        @test occursin("VDD vdd 0 DC 5\n", txt) && occursin("MN1 out in 0 0 ald1105n W=2.0e-5 L=1.0e-5\n", txt)
+        g = SchematicSVG.spiceline(NetDevice("G1", :G, ["a", "0"], (2u"mS", ("x", "0"))))
+        @test g == "G1 a 0 x 0 0.002"
+        s1 = SchematicSVG.spiceline(NetDevice("V1", :sV, ["a", "0"], (amplitude=10u"mV", frequency=1u"kHz")))
+        @test s1 == "V1 a 0 SIN(0 0.01 1000)"
+        @test SchematicSVG.paramtext("Rx" => 4.7u"kΩ") == "Rx=4700"
     end
 end
 

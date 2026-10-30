@@ -5,16 +5,20 @@ version = "0.7.2"
 
 [weakdeps]
 Microelectronics = "7558d6fc-9aaf-4343-9ca4-2cb62773acb1"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [extensions]
 SchematicSVGMicroelectronicsExt = "Microelectronics"
+SchematicSVGUnitfulExt = "Unitful"
 
 [compat]
 Microelectronics = "1"
+Unitful = "1"
 julia = "1.10"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [targets]
-test = ["Test"]
+test = ["Test", "Unitful"]
