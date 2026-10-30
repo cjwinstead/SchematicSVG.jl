@@ -28,6 +28,27 @@ function annotation(e)
     nothing
 end
 
+# SPICE letters an item's instance may carry, so "N1" also matches an element named "MN1"
+# (Microelectronics.jl prefixes names) and "OA1" matches "XOA1".
+const ITEM_LETTERS = Dict(:R => "R", :C => "C", :L => "L", :D => "D", :V => "V", :I => "I",
+                          :sV => "VI", :cV => "EH", :cI => "GF", :nmos => "M", :pmos => "M",
+                          :npn => "Q", :pnp => "Q")
+itemletters(it::Bipole) = get(ITEM_LETTERS, it.kind, "")
+itemletters(it::Transistor) = ITEM_LETTERS[it.kind]
+itemletters(::Opamp) = "X"
+
+"Key of `d` (upper-case names) for item `it`: its drawn name, or the name with its SPICE letter."
+function lookupname(d::AbstractDict, it)
+    key = uppercase(it.name)
+    isempty(key) && return nothing
+    haskey(d, key) && return key
+    for L in itemletters(it)
+        k = string(L, key)
+        haskey(d, k) && return k
+    end
+    nothing
+end
+
 const PREFIXES = ((1e9, "G"), (1e6, "M"), (1e3, "k"), (1.0, ""), (1e-3, "m"),
                   (1e-6, "µ"), (1e-9, "n"), (1e-12, "p"), (1e-15, "f"))
 
@@ -53,6 +74,16 @@ const UNIT_OF = Dict('R' => "Ω", 'C' => "F", 'L' => "H", 'V' => "V", 'I' => "A"
 
 valuetext(v::Real, name) = si(v, get(UNIT_OF, isempty(name) ? ' ' : uppercase(name[1]), ""))
 valuetext(v, name) = string(v)
+# Netlist-style values: (gain, control) for dependent sources, NamedTuples of parameters.
+valuetext(v::Tuple, name) = isempty(v) ? "" : valuetext(first(v), name)
+function valuetext(v::NamedTuple, name)
+    for k in (:value, :gain, :model)
+        haskey(v, k) && return valuetext(v[k], name)
+    end
+    haskey(v, :amplitude) && return si(v.amplitude, "V") *
+                                    (haskey(v, :frequency) ? ", " * si(v.frequency, "Hz") : "")
+    ""
+end
 
 # Escape text that will go through `texlabel` so model names like `nmos_lv` survive.
 literal(s) = replace(s, "_" => "\\_")
@@ -75,22 +106,25 @@ Return a copy of `s` with element values/models and node annotations added.
 function annotate(s::Schematic, elements=(); nodes=Dict(), style::Symbol=:below)
     style in (:below, :inline, :value) ||
         throw(ArgumentError("style must be :below, :inline or :value, got :$style"))
-    info = Dict{String,Any}()
+    info = Dict{String,Any}()               # what to print, by upper-case name
+    values = copy(s.values)                 # what the netlister uses: raw values or objects
     if elements isa AbstractDict
         for (k, v) in elements
             info[uppercase(string(k))] = v
+            values[uppercase(string(k))] = v
         end
     else
         for e in elements
             v = annotation(e)
             v === nothing || (info[uppercase(instancename(e))] = v)
+            values[uppercase(instancename(e))] = e
         end
     end
     nodeinfo = Dict{String,Any}(lowercase(string(k)) => v for (k, v) in nodes)
 
     function element(it)            # -> (label, note)
-        key = uppercase(it.name)
-        haskey(info, key) || return (it.label, it.note)
+        key = lookupname(info, it)
+        key === nothing && return (it.label, it.note)
         text = valuetext(info[key], it.name)
         ismodel = it isa Union{Transistor,Opamp} || (it isa Bipole && it.kind == :D)
         if style == :below
@@ -126,5 +160,5 @@ function annotate(s::Schematic, elements=(); nodes=Dict(), style::Symbol=:below)
             it
         end
     end
-    Schematic(collect(Placed, items), s.scale, s.stroke, s.background, s.font)
+    Schematic(collect(Placed, items), s.scale, s.stroke, s.background, s.font, values)
 end

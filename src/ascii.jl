@@ -155,13 +155,24 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
         nothing
     end
 
-    # 1. Wires: join neighbouring wire cells centre to centre.
+    # 1. Wires: join neighbouring wire cells centre to centre. A ')' crossing is spanned by
+    #    one horizontal and one vertical segment, so the crossing point is interior to both
+    #    and the two wires stay unconnected in the netlist.
     for r in eachindex(g), c in eachindex(g[r])
         iswire(r, c) || continue
-        if iswire(r, c + 1) && (hz(ch(r, c)) || hz(ch(r, c + 1)))
+        if ch(r, c) == ')'
+            if iswire(r, c - 1) && iswire(r, c + 1)
+                push!(items, Wire(P(r, c - 1), P(r, c + 1))); bump!(r, c - 1); bump!(r, c + 1)
+            end
+            if iswire(r - 1, c) && iswire(r + 1, c)
+                push!(items, Wire(P(r - 1, c), P(r + 1, c))); bump!(r - 1, c); bump!(r + 1, c)
+            end
+            continue
+        end
+        if iswire(r, c + 1) && ch(r, c + 1) != ')' && (hz(ch(r, c)) || hz(ch(r, c + 1)))
             push!(items, Wire(P(r, c), P(r, c + 1))); bump!(r, c); bump!(r, c + 1)
         end
-        if iswire(r + 1, c) && (vt(ch(r, c)) || vt(ch(r + 1, c)))
+        if iswire(r + 1, c) && ch(r + 1, c) != ')' && (vt(ch(r, c)) || vt(ch(r + 1, c)))
             push!(items, Wire(P(r, c), P(r + 1, c))); bump!(r, c); bump!(r + 1, c)
         end
     end
@@ -249,9 +260,9 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
             elseif iswire(r, t.s1 + 1)                               # @vx|wire
                 push!(items, NodeLabel(P(r, t.s1 + 1), t.name, :left; label=text))
             elseif ca !== nothing                                    # under a wire
-                push!(items, NodeLabel(P(r - 1, t.s0), t.name, :below; label=text))
+                push!(items, NodeLabel(P(r - 1, ca), t.name, :below; label=text))
             elseif cb !== nothing                                    # over a wire
-                push!(items, NodeLabel(P(r + 1, t.s0), t.name, :above; label=text))
+                push!(items, NodeLabel(P(r + 1, cb), t.name, :above; label=text))
             else
                 @warn "node tag @$(t.name) is not next to a wire; skipped"
             end
