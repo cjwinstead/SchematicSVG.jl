@@ -307,6 +307,34 @@ function texts(s::Schematic, v::Voltage)
     [beside(mid, n, hh + 7, mt, :label)]
 end
 
+# ─────────────────────────── current arrows ─────────────────────────
+# Page-coordinate frame of a Current: the arrow's centre, its unit direction and the unit
+# normal on its label side.
+function currentframe(s::Schematic, c::Current)
+    A, B = px(s, c.a), px(s, c.b)
+    d = B - A
+    L = hypot(d.x, d.y)
+    u = (1 / L) * d
+    left = Pt(u.y, -u.x)                 # left of a → b, as seen on the page
+    n = c.side == :left ? left : c.side == :right ? -1 * left :
+        (left.y > 1e-6 || (abs(left.y) < 1e-6 && left.x < 0)) ? -1 * left : left   # :auto
+    hw = c.kind in (:short, :open) ? 0.0 : Float64(body(c.kind)[1])
+    t = hw == 0 ? c.pos * L :                        # on a wire: where asked
+        c.pos >= 0.5 ? (3L + 2hw) / 4 : (L - 2hw) / 4  # mid-lead after / before the symbol
+    A + t * u, c.into ? -1 * u : u, n
+end
+
+function render(io, s::Schematic, c::Current, _)
+    C, u, _ = currentframe(s, c)
+    print(io, arrowhead(C + 3.5 * u, u; len=7, w=3.5))
+end
+
+function texts(s::Schematic, c::Current)
+    isempty(c.label) && return TextBox[]
+    C, _, n = currentframe(s, c)
+    [beside(C, n, 7, texlabel(c.label), :label)]
+end
+
 function arrowhead(tip::Pt, dir::Pt; len=5, w=2.5)
     u = (1 / hypot(dir.x, dir.y)) * dir
     p = Pt(-u.y, u.x)
@@ -395,6 +423,7 @@ anchors(o::Opamp, _) = [[pin(o, p) for p in (:inp, :inn, :out)]; o.at + Pt(0, 0.
 anchors(w::Wire, devs) = [p isa PinRef ? pin(devs[p.device], p.pin) : p for p in w.pts]
 anchors(x::Union{Ground,Supply,Port,NodeLabel,Dot}, _) = [x.at]
 anchors(v::Voltage, _) = [v.plus, v.minus]
+anchors(c::Current, _) = [c.a, c.b]
 
 # Bounding box of every point and every text box (text width estimated per character).
 function bbox(s::Schematic, devs, boxes)

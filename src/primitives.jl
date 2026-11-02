@@ -157,6 +157,31 @@ struct Voltage <: Placed
 end
 Voltage(plus, minus, label=""; side=:right, kind=:open) = Voltage(plus, minus, label, side, kind)
 
+"""
+    Current(a, b, label=""; side=:auto, into=false, pos=0.5, kind=:short)
+
+Current arrow on the wire from `a` toward `b`, like CircuiTikZ `i=`: it points at `b`
+(back at `a` when `into`), with `label` beside it. To mark the currents branching at a
+node, give each branch its own arrow with `a` at the node: `Current(node, p, "i_1")` is
+a current leaving the node and `into=true` one entering it. `pos` is the arrow's place
+as a fraction of a → b. When a `Bipole` of kind `kind` (`:R`, `:C`, …) is drawn between
+the same points the arrow goes on one of its leads instead: the end lead when `pos ≥ 0.5`,
+the start lead otherwise. `side` is `:left` or `:right` of the a → b direction, or `:auto`
+(above horizontal wires, right of vertical ones). Current arrows are annotation only:
+they don't affect the netlist.
+"""
+struct Current <: Placed
+    a::Pt
+    b::Pt
+    label::String
+    side::Symbol
+    into::Bool
+    pos::Float64
+    kind::Symbol
+end
+Current(a, b, label=""; side=:auto, into=false, pos=0.5, kind=:short) =
+    Current(a, b, label, side, into, pos, kind)
+
 function pin(t::Transistor, p::Symbol)
     sx = t.xflip ? -1 : 1
     sy = t.yflip ? -1 : 1

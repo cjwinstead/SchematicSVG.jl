@@ -249,6 +249,10 @@ struct BipoleSpec
     voltage::String       # v= label drawn as polarity marks (non-sources)
     vside::Symbol         # :right for v= / v_= (CircuiTikZ default), :left for v^=
     vrev::Bool            # v<= : '+' at the end of the path
+    current::String       # i= label of a current arrow
+    iside::Symbol         # :left for i= / i^= (CircuiTikZ default), :right for i_=
+    irev::Bool            # i<= and the like: the arrow points at the path start
+    iend::Bool            # arrow on the lead after the symbol (else before it)
     invert::Bool
     start_mark::Char      # '*' dot, 'o' open circle, ' ' none
     end_mark::Char
@@ -257,6 +261,7 @@ end
 function bipolespec(opts::AbstractString)
     kind = :short; label = ""; note = ""; vlabel = ""; name = ""; invert = false; side = :left
     vside = :right; vrev = false
+    ilabel = ""; iside = :left; irev = false; iend = true
     sm = em = ' '
     found = false
     for (k, v) in parseopts(opts)
@@ -272,8 +277,15 @@ function bipolespec(opts::AbstractString)
             vlabel = something(v, "")                   # v=, v^=, v_=, v<=, v^<=, …
             vside = '^' in k ? :left : :right
             vrev = '<' in k
-        elseif k in ("i", "i_", "i^", "i<", "i>")
-            # current arrows aren't drawn
+        elseif startswith(k, "i") && length(k) <= 3 && all(c -> c in "^_<>", k[2:end])
+            # i=, i_=, i<=, i_>=, i>^=, … : '_'/'^' set the side; '<'/'>' the direction.
+            # A direction right after 'i' moves the arrow before the symbol (i>_=, i<=)
+            # except for a lone i>=.
+            ilabel = something(v, "")
+            m = k[2:end]
+            iside = '_' in m ? :right : :left
+            irev = '<' in m
+            iend = isempty(m) || m[1] in "_^" || m == ">"
         elseif k in ("n", "name")
             name = something(v, "")
         elseif k == "invert"
@@ -293,7 +305,8 @@ function bipolespec(opts::AbstractString)
         voltage = vlabel
     end
     isempty(name) && (name = name_from_label(label))
-    BipoleSpec(kind, siunitx(label), siunitx(note), name, side, siunitx(voltage), vside, vrev, invert, sm, em)
+    BipoleSpec(kind, siunitx(label), siunitx(note), name, side, siunitx(voltage), vside, vrev,
+               siunitx(ilabel), iside, irev, iend, invert, sm, em)
 end
 
 function mark!(st::TikzState, p::Pt, m::Char)
@@ -315,6 +328,13 @@ function addbipole!(st::TikzState, a::Pt, b::Pt, spec::BipoleSpec)
         p, m = spec.vrev ? (b, a) : (a, b)
         vs = spec.vrev ? (spec.vside == :left ? :right : :left) : spec.vside
         push!(st.items, Voltage(p, m, spec.voltage; side=vs, kind=spec.kind == :short ? :open : spec.kind))
+    end
+    if !isempty(spec.current)
+        # on a wire the arrow sits mid-way; on a component, on the lead after the symbol
+        # (or before it), in the direction of the path unless reversed
+        push!(st.items, Current(a, b, spec.current; side=spec.iside, into=spec.irev,
+                                pos=spec.kind in (:short, :open) ? 0.5 : spec.iend ? 1.0 : 0.0,
+                                kind=spec.kind))
     end
     mark!(st, a, spec.start_mark)
     mark!(st, b, spec.end_mark)

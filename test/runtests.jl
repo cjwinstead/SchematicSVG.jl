@@ -571,6 +571,57 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test occursin("<svg", to_svg(tikz_schematic(raw"\draw (0,0) to[C, v=$v_C$] (2,0);")))
     end
 
+    @testset "current arrows" begin
+        kcl = """
+           in--~i1>--*--~i2>--R1--out
+                     |
+                    ~i3v
+                     |
+                     R2
+                     |
+                    gnd
+        """
+        s = ascii_schematic(kcl; labels=Dict("i2" => raw"$i_{R1}$"))
+        cs = filter(x -> x isa Current, s.items)
+        @test [c.label for c in cs] == ["i_{1}", raw"$i_{R1}$", "i_{3}"]
+        @test all(c -> !c.into && c.kind == :short, cs)
+        @test cs[1].b.x > cs[1].a.x && cs[3].b.y < cs[3].a.y           # right, and down
+        n = schematic_netlist(s; elements=Dict("R1" => 1e3, "R2" => 2e3))
+        @test [d.name => d.nodes for d in n.devices] == ["R1" => ["in", "out"], "R2" => ["in", "0"]]
+        @test count(x -> x isa Dot, s.items) == 1
+        svg = to_svg(s)
+        @test occursin(">i<tspan dy=\"4\" font-size=\"10.5\">3</tspan>", svg)
+        rev = ascii_schematic("""
+           a--<~ia--+------+
+                    |      |
+                    ~ib^   R1
+                    |      |
+                   gnd    gnd
+        """)
+        ia, ib = filter(x -> x isa Current, rev.items)
+        @test ia.into && ib.into                                       # left, and up
+        @test_logs (:warn, r"not inline") ascii_schematic("  a--~i1")
+
+        # CircuiTikZ i= keys: arrow mid-wire on short, on a lead of a component
+        cm(src) = only(filter(x -> x isa Current, tikz_schematic(src).items))
+        c = cm(raw"\draw (0,0) to[short, i=$i$] (2,0);")
+        @test c.pos == 0.5 && c.side == :left && !c.into && c.kind == :short
+        c = cm(raw"\draw (0,0) to[R, i_=$i$] (3,0);")
+        @test c.pos == 1.0 && c.side == :right && c.kind == :R
+        c = cm(raw"\draw (0,0) to[R, i<=$i$] (3,0);")
+        @test c.pos == 0.0 && c.into                                     # before the symbol, reversed
+        @test cm(raw"\draw (0,0) to[R, i>_=$i$] (3,0);").pos == 0.0
+        @test cm(raw"\draw (0,0) to[R, i^<=$i$] (3,0);").pos == 1.0
+        @test occursin("<polygon", to_svg(tikz_schematic(raw"\draw (0,0) to[C, i=$i_C$] (2,0);")))
+
+        # placed: currents branching at a node
+        node = Pt(0, 0)
+        p = Schematic([Wire(Pt(-1, 0), Pt(1, 0)), Wire(node, Pt(0, -1)), Dot(node),
+                       Current(node, Pt(-1, 0), "i_1"; into=true, pos=0.4),
+                       Current(node, Pt(1, 0), "i_2"; pos=0.4), Current(node, Pt(0, -1), "i_3"; pos=0.4)])
+        @test length(collect(eachmatch(r"<polygon", to_svg(p)))) == 3
+    end
+
     @testset "quantities in SPICE text" begin
         rc = """
           in--R1--+--out

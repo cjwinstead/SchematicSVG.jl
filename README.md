@@ -57,7 +57,7 @@ unless `noinv input up` or `yscale=-1`; `pmos`/`pnp` have the source/emitter on 
 | Statements | `\draw`, `\path`, `\node … at (p) {…}`, `\coordinate (A) at (p)`, inside `circuitikz` / `tikzpicture` (environment `scale=` honoured) or bare |
 | Coordinates | `(x,y)` with optional units (cm, mm, pt, in) and simple arithmetic, `+(…)`, `++(…)`, polar `(θ:r)`, named `(A)`, anchors `(M1.D)`, `(OA.+)`, perpendicular `(A \|- B)`, `(A -\| B)` |
 | Path operations | `--`, `-\|`, `\|-`, `to[…]`, `node[…](name){text}` (at the point, or mid-segment), `coordinate (name)` |
-| Two-terminal | `R`, `C`, `L`, `D` (and `zD`, `sD`, `leD`, filled variants), `V`, `I`, `sV`/`sI`, `cV`, `cI`, `short`, `open`, `generic`/`fuse` (box); options `l=`, `l_=`, `a=`, `v=`, `i=`, `n=`, `invert`, `*-*`/`o-`/`-o` end markers, siunitx values like `R=4.7<\kilo\ohm>` |
+| Two-terminal | `R`, `C`, `L`, `D` (and `zD`, `sD`, `leD`, filled variants), `V`, `I`, `sV`/`sI`, `cV`, `cI`, `short`, `open`, `generic`/`fuse` (box); options `l=`, `l_=`, `a=`, `v=` (and `v^=`, `v<=`), `i=` (and `i_=`, `i<=`, `i>_=`, …), `n=`, `invert`, `*-*`/`o-`/`-o` end markers, siunitx values like `R=4.7<\kilo\ohm>` |
 | Nodes | `ground` (and variants), `vcc`/`vdd`, `vee`/`vss`, `circ`, `ocirc`, `nmos`/`pmos`/`nfet`/`pfet`, `npn`/`pnp`, `op amp`, plain text nodes (`right`/`left`/`above`/`below`/`anchor=`); options `anchor=`, `xscale=-1`, `yscale=-1`, `noinv input up` |
 
 Anything else (`circle`, `\foreach`, `calc` expressions, rotated nodes, macros, unknown
@@ -106,6 +106,7 @@ ascii_schematic(art; labels=Dict("R1" => raw"$R_1 = 10\,k\Omega$"), dx=0.5, dy=0
 | `gnd` `vdd` `vcc` `vss` `vee` | ground and supply rails |
 | other lowercase words | named terminals (open circle) |
 | `@name` | node tag: italic node name, no circle (see below) |
+| `~i1>` `<~i1` `~i1^` `~i1v` | current arrow inline in a wire, labelled from the name (`~i1` → i<sub>1</sub>); default right/down (see below) |
 
 Rules of thumb:
 
@@ -153,6 +154,35 @@ In CircuiTikZ the same is `to[open, v=$v_{gs}$]`, and `v=` on any other componen
 its polarity marks beside the symbol (`v^=` on the other side, `v<=` reversed). For placed
 drawings use `Voltage(plus, minus, label; side, kind)`. Voltage marks are annotation only;
 open circuits are left out of netlists.
+
+### Current arrows
+
+A word starting with `~` inside a horizontal or vertical wire draws a current arrow there,
+so the currents branching at a node can be marked on each wire leaving it:
+
+```julia
+kcl = """
+   in--~i1>--*--~i2>--R1--out
+             |
+            ~i3
+             |
+             R2
+             |
+            gnd
+"""
+ascii_schematic(kcl; labels=Dict("i2" => raw"$i_{R1}$"))
+```
+
+The label comes from the name (`~i1` → i<sub>1</sub>, `~iD` → i<sub>D</sub>) unless
+`labels` overrides it. Arrows point right or down by default; `<~i1` points left and
+`~i1^` up (`~i1v`, down, is accepted after a digit, as for sources). The cell stays a
+wire, so arrows don't change the netlist.
+
+In CircuiTikZ use `i=` on any `to[…]`: on a `short` the arrow is mid-wire, and on a
+component it sits on the lead after the symbol. `i_=` puts the label on the other side,
+`i<=` reverses the arrow (before the symbol), and `i_>=`, `i^<=`, `i>_=`, `i<^=` and so on
+follow CircuiTikZ's placement rules. For placed drawings use
+`Current(a, b, label; side, into, pos)` (below).
 
 ## Annotations: values, models and node voltages
 
@@ -340,6 +370,8 @@ Schematic([
 | `Wire(points...)` | points are `Pt` or `PinRef(device, pin)` |
 | `Port(at, label, side; name)`, `NodeLabel(at, name, side; label)` | terminal with circle / node name only; `side` ∈ `:left :right :above :below` |
 | `Ground(at, flip=false)`, `Supply(at, label, up)`, `Dot(at)` | |
+| `Voltage(plus, minus, label; side, kind)` | polarity marks: on the line for `kind=:open`, flanking the symbol of a component of that kind |
+| `Current(a, b, label; side, into, pos, kind)` | current arrow on the wire a→b, pointing at `b` (at `a` when `into`), `pos` of the way along; with a component `kind` it goes on the end lead (`pos ≥ 0.5`) or the start lead. For currents at a node use `a` = the node, e.g. `Current(node, Pt(1, 0), "i_2"; pos=0.4)` |
 
 `note` is the second line of text (value or model) that annotations fill in.
 

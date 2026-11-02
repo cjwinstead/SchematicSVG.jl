@@ -22,6 +22,9 @@
 #   @name            node tag (italic name, no circle). Inline in a wire (--@vx--) it
 #                    labels the wire above; next to a wire end or under/over a wire it
 #                    labels that point. Names may contain letters, digits and '_'.
+#   ~i1>             current arrow inline in a wire (--~i1>-- or between '|' cells), label
+#                    from the name (~i1 → i_1, ~iD → i_D). Markers give the direction:
+#                    ~i1> <~i1 ~i1^ ~i1v; the default is right / down. Annotation only.
 # A word with wires left and right is horizontal; with wires above and below, vertical.
 
 const KINDS = Dict('R' => :R, 'C' => :C, 'L' => :L, 'D' => :D, 'V' => :V, 'I' => :I,
@@ -74,6 +77,26 @@ function tokenize(g)
                     c += 1
                 end
                 push!(toks, Tok(String(row[c0:c-1]), :node, r, c0, c - 1, c0 - 1, c - 1, :none, :none))
+                continue
+            end
+            if row[c] == '~' && c < length(row) && isletter(row[c+1])
+                c0 = c + 1
+                c = c0
+                while c <= length(row) && (isletter(row[c]) || isdigit(row[c]) || row[c] == '_')
+                    c += 1
+                end
+                name = String(row[c0:c-1])
+                s0, s1, dir = c0 - 1, c - 1, :none
+                if length(name) >= 2 && name[end] == 'v' && (length(name) == 2 || isdigit(name[end-1]))
+                    name = name[1:end-1]; dir = :down
+                elseif ch(c) == '>'
+                    dir = :right; s1 += 1; c += 1
+                elseif ch(c) == '^'
+                    dir = :up; s1 += 1; c += 1
+                elseif ch(s0 - 1) == '<'
+                    dir = :left; s0 -= 1
+                end
+                push!(toks, Tok(name, :current, r, c0, c0 + length(name) - 1, s0, s1, dir, :none))
                 continue
             end
             if !isletter(row[c])
@@ -329,6 +352,22 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
             end
             if iswire(r, t.s1 + 1)
                 push!(items, Wire(O + Pt(0.5, 0), P(r, t.s1 + 1))); bump!(r, t.s1 + 1)
+            end
+
+        elseif k == :current
+            text = get(labels, t.name, deflabel(t.name))
+            through = findfirst(c -> iswire(r - 1, c) && iswire(r + 1, c), t.s0:t.s1)
+            if iswire(r, t.s0 - 1) && iswire(r, t.s1 + 1)          # --~i1>--
+                a, b = P(r, t.s0 - 1), P(r, t.s1 + 1)
+                push!(items, Wire(a, b)); bump!(r, t.s0 - 1); bump!(r, t.s1 + 1)
+                push!(items, Current(a, b, text; into=t.dir == :left))
+            elseif through !== nothing                               # vertical run
+                c = t.s0 + through - 1
+                a, b = P(r - 1, c), P(r + 1, c)
+                push!(items, Wire(a, b)); bump!(r - 1, c); bump!(r + 1, c)
+                push!(items, Current(a, b, text; into=t.dir == :up))
+            else
+                @warn "current arrow ~$(t.name) is not inline in a wire; skipped"
             end
 
         elseif k == :node

@@ -10,7 +10,7 @@ Coordinates are in CircuiTikZ units (y points up); the SVG backend flips y.
 module SchematicSVG
 
 # Opamp is not exported: Microelectronics.jl exports its own (use SchematicSVG.Opamp).
-export Pt, Bipole, Transistor, Wire, Ground, Dot, Supply, Port, NodeLabel, PinRef, Voltage
+export Pt, Bipole, Transistor, Wire, Ground, Dot, Supply, Port, NodeLabel, PinRef, Voltage, Current
 export Schematic, pin, to_svg
 export ascii_schematic, @schem_str
 export annotate, si
