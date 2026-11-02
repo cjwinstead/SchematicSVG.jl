@@ -91,4 +91,10 @@ using SchematicSVG, Microelectronics, Test
     txt = spice_netlist(ascii_schematic(rc; elements=Dict("R1" => 4.7u"kΩ", "C1" => 10u"μF")); external=["in"])
     @test occursin("R1 in out $(qstr(4.7u"kΩ"))\n", txt) && occursin("C1 out 0 $(qstr(10u"μF"))\n", txt)
     @test occursin("C1 out 0 1e-05\n", txt)
+
+    # subcircuit terminals from the drawing (left to right), or as given
+    rcs = ascii_schematic(rc; elements=Dict("R1" => 4.7u"kΩ", "C1" => 10u"μF"))
+    @test to_subcircuit(rcs; name="lp").terminals == ["in", "out"]
+    @test to_subcircuit(rcs; name="lp", terminals=["out", "in"]).terminals == ["out", "in"]
+    @test length(to_subcircuit(rcs; name="lp").components) == 2
 end

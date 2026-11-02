@@ -137,12 +137,10 @@ to_microelectronics(s::SchematicSVG.Schematic; kw...) = to_microelectronics(sche
 asparameter(p::ME.Parameter) = p
 asparameter(p::Pair) = ME.Parameter(string(first(p)), last(p))
 
-function to_subcircuit(s::SchematicSVG.Schematic; name, terminals, parameters=ME.Parameter[],
-                       rename=Dict(), elements=())
-    n = subcircuit_netlist(s, terminals; rename, elements)
-    renames = Dict(lowercase(string(k)) => string(v) for (k, v) in rename)
-    ME.Subcircuit(; name=string(name),
-                  terminals=[get(renames, lowercase(string(t)), string(t)) for t in terminals],
+function to_subcircuit(s::SchematicSVG.Schematic; name, terminals=nothing,
+                       parameters=ME.Parameter[], rename=Dict(), elements=())
+    n, terms = subcircuit_netlist(s, terminals; rename, elements)
+    ME.Subcircuit(; name=string(name), terminals=terms,
                   parameters=ME.Parameter[asparameter(p) for p in parameters],
                   components=ME.Element[medevice(d) for d in n.devices])
 end

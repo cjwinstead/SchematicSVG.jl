@@ -511,6 +511,39 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
                               external=["in", "vdd", "vss"])
         @test "vdd!" in n.nets && isempty(n.supplies)
         @test_throws ArgumentError to_subcircuit(ascii_schematic(cs); name="x", terminals=["in"])   # extension not loaded
+
+        # drawn terminals: named circles left to right (in before out, though out is higher)
+        cs_s = ascii_schematic(cs; elements=vals)
+        @test schematic_netlist(cs_s).terminals == ["in", "out"]
+        @test spice_subcircuit(cs_s; name="cs_nmos", rename=Dict("vdd" => "vdd!", "vss" => "vss!")) == sub
+        @test startswith(spice_subcircuit(cs_s; name="x", terminals=["out", "in"]), ".subckt x out in\n")
+        @test startswith(spice_subcircuit(cs_s; name="x", rename=Dict("out" => "vo")), ".subckt x in vo\n")
+        # a terminal drawn twice counts once; then top to bottom at the same x
+        hp = ascii_schematic("""
+           g        +------+------d
+                    |      |
+           Ovgs     G1     RO
+                    |      |
+           s--------+------+------s
+        """)
+        @test schematic_netlist(hp).terminals == ["g", "s", "d"]
+        # node tags are not terminals
+        t = ascii_schematic("""
+           a--R1--+--@m--R2--b
+                  |
+                  R3
+                  |
+                 gnd
+        """)
+        @test schematic_netlist(t).terminals == ["a", "b"]
+        # CircuiTikZ: an ocirc named by a text node at the same point; an unnamed one on ground is not a terminal
+        tk = tikz_schematic(raw"""
+          \draw (0,0) node[ocirc]{} node[left]{in} to[R=1<\kilo\ohm>] (2,0) node[ocirc]{} node[right]{out};
+          \draw (2,0) to[R=1<\kilo\ohm>] (2,-2) node[ground]{};
+          \draw (4,0) to[short, o-] (4,-2) node[ground]{};
+        """)
+        @test schematic_netlist(tk).terminals == ["in", "out"]
+        @test_throws ArgumentError spice_subcircuit(ascii_schematic("  gnd--R1--gnd"); name="x")
     end
 
     @testset "voltage marks" begin

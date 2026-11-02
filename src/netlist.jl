@@ -29,13 +29,15 @@ end
     SchematicNetlist
 
 Result of [`schematic_netlist`](@ref): `devices` (a vector of [`NetDevice`](@ref)),
-`supplies` (supply net => value, `nothing` when not given) and `nets` (all node names;
-ground is `"0"`). Displays as SPICE text.
+`supplies` (supply net => value, `nothing` when not given), `nets` (all node names;
+ground is `"0"`) and `terminals` (the named nodes with a terminal circle, left to right
+and then top to bottom: the default subcircuit terminals). Displays as SPICE text.
 """
 struct SchematicNetlist
     devices::Vector{NetDevice}
     supplies::Vector{Pair{String,Any}}
     nets::Vector{String}
+    terminals::Vector{String}
 end
 
 # ─────────────── geometry → nodes ───────────────
@@ -155,7 +157,8 @@ voltage of each supply net, e.g. `Dict("vdd" => 5)`.
 
 `rename` maps drawn node names to netlist names, e.g. `Dict("vdd" => "vdd!")` for global
 nodes. `external` lists nodes connected outside the drawing (subcircuit terminals, global
-supplies): they count as driven for the DC check and need no supply voltage.
+supplies): they count as driven for the DC check and need no supply voltage. The symbol
+`:terminals` in `external` stands for every drawn terminal (see `SchematicNetlist`).
 
 Warns about devices without a value, unconnected pins, nodes with conflicting names, and
 nodes with no DC path to ground.
@@ -165,6 +168,7 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
     rn(n) = get(renames, lowercase(n), n)
     externals = Set{String}()
     for x in external
+        x === :terminals && continue                     # added once the nodes are named
         push!(externals, lowercase(string(x)), lowercase(rn(string(x))))
     end
     vals = copy(s.values)
@@ -250,6 +254,20 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
             end
             nm
         end
+    end
+
+    # Terminals: named nodes with a terminal circle (a circle named by a tag or CircuiTikZ
+    # text at the same point counts), left to right, then top to bottom. Circles on ground
+    # or a supply, and unnamed ones, are not terminals.
+    terminals = String[]
+    for p in sort([it for it in s.items if it isa Port]; by=p -> (p.at.x, -p.at.y))
+        prio, nm = get(named, root(p.at), (-1, ""))
+        prio == 2 || continue
+        t = rn(nm)
+        any(x -> lowercase(x) == lowercase(t), terminals) || push!(terminals, t)
+    end
+    :terminals in external && for t in terminals
+        push!(externals, lowercase(t))
     end
 
     # 3. Devices.
@@ -352,7 +370,7 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
     isempty(nosource) ||
         @warn "schematic_netlist: no voltage for supply $(join(nosource, ", ")); pass supplies=Dict(\"$(first(nosource))\" => …)"
     nets = unique!([rn(x) for x in vcat([named[r][2] for r in keys(named)], collect(values(auto)))])
-    SchematicNetlist(devices, sup, sort!(nets))
+    SchematicNetlist(devices, sup, sort!(nets), terminals)
 end
 
 """
@@ -509,19 +527,23 @@ paramtext(p::Pair) = "$(first(p))=$(spicevalue(last(p)))"
 paramtext(p) = "$(p.name)=$(spicevalue(p.value))"
 
 """
-    spice_subcircuit(s::Schematic; name, terminals, params=(), rename=Dict(), elements=()) -> String
+    spice_subcircuit(s::Schematic; name, terminals=nothing, params=(), rename=Dict(), elements=()) -> String
 
 A `.subckt name terminals… params: …` … `.ends` block for the circuit drawn in `s`.
-`terminals` are drawn node names (e.g. `["in", "out"]`); supply nodes are left to the
-enclosing netlist, so use `rename` to make them global (`Dict("vdd" => "vdd!")`, with
-`.global vdd!` in the netlist). `params` are `name => default` pairs that device values
-can refer to as symbols (`:Rload` is written `{Rload}`).
+
+The terminals are the drawn terminals (named nodes with a terminal circle: `in`, `out`
+in an ASCII drawing, or an `ocirc` with a text label in CircuiTikZ), in order left to
+right and then top to bottom. Pass `terminals` (drawn node names, e.g.
+`["inp", "inn", "outp", "outn"]`) to choose them or their order. Supply nodes are left
+to the enclosing netlist, so use `rename` to make them global
+(`Dict("vdd" => "vdd!")`, with `.global vdd!` in the netlist). `params` are
+`name => default` pairs that device values can refer to as symbols (`:Rload` is written
+`{Rload}`).
 """
-function spice_subcircuit(s::Schematic; name, terminals, params=(), rename=Dict(), elements=())
-    n = subcircuit_netlist(s, terminals; rename, elements)
-    renames = Dict(lowercase(string(k)) => string(v) for (k, v) in rename)
+function spice_subcircuit(s::Schematic; name, terminals=nothing, params=(), rename=Dict(), elements=())
+    n, terms = subcircuit_netlist(s, terminals; rename, elements)
     io = IOBuffer()
-    print(io, ".subckt ", name, " ", join([get(renames, lowercase(string(t)), string(t)) for t in terminals], " "))
+    print(io, ".subckt ", name, " ", join(terms, " "))
     isempty(params) || print(io, " params: ", join(paramtext.(collect(params)), " "))
     println(io)
     for d in n.devices
@@ -531,25 +553,34 @@ function spice_subcircuit(s::Schematic; name, terminals, params=(), rename=Dict(
     String(take!(io))
 end
 
-# The netlist of a subcircuit: terminals and supplies are external, and every terminal
+# The netlist of a subcircuit and its terminal names (after `rename`): the given
+# terminals, or the drawn ones. Terminals and supplies are external, and every terminal
 # must be a node of the drawing.
 function subcircuit_netlist(s::Schematic, terminals; rename=Dict(), elements=())
+    if terminals === nothing
+        n = schematic_netlist(s; elements, rename, external=vcat(Any[:terminals], supplynames(s)))
+        isempty(n.terminals) && throw(ArgumentError(
+            "the drawing has no named terminals (open circles such as `in` or `out`); " *
+            "draw them or pass terminals=[…]"))
+        return n, n.terminals
+    end
     ext = vcat([string(t) for t in terminals], supplynames(s))
     n = schematic_netlist(s; elements, rename, external=ext)
     renames = Dict(lowercase(string(k)) => string(v) for (k, v) in rename)
-    for t in terminals
-        tn = get(renames, lowercase(string(t)), string(t))
+    terms = [get(renames, lowercase(string(t)), string(t)) for t in terminals]
+    for (t, tn) in zip(terminals, terms)
         any(x -> lowercase(x) == lowercase(tn), n.nets) ||
             throw(ArgumentError("subcircuit terminal '$t' is not a node of the drawing (nodes: $(join(n.nets, ", ")))"))
     end
-    n
+    n, terms
 end
 
 """
-    to_subcircuit(s::Schematic; name, terminals, parameters=[], rename=Dict(), elements=())
+    to_subcircuit(s::Schematic; name, terminals=nothing, parameters=[], rename=Dict(), elements=())
 
-A Microelectronics.jl `Subcircuit` for the circuit drawn in `s`, with the given
-`terminals` (drawn node names); see [`spice_subcircuit`](@ref) for `rename` and
+A Microelectronics.jl `Subcircuit` for the circuit drawn in `s`. Its terminals are the
+drawn terminals, left to right and then top to bottom, unless `terminals` (drawn node
+names) chooses them or their order; see [`spice_subcircuit`](@ref) for `rename` and
 parameters. Available after `using Microelectronics`.
 """
 function to_subcircuit end

@@ -388,7 +388,21 @@ A schematic with no ground symbol at all gets its own warning.
 
 `to_subcircuit(s; name, terminals, parameters, rename)` returns a Microelectronics
 `Subcircuit`, and `spice_subcircuit(s; name, terminals, params, rename)` the
-`.subckt … .ends` text. Terminals and supply nodes are connected outside, so they don't
+`.subckt … .ends` text.
+
+The terminals come from the drawing: every named node with a terminal circle (`in`,
+`out` in an ASCII drawing; an `ocirc` with a text label in CircuiTikZ), ordered left to
+right and then top to bottom. A terminal drawn twice counts once, and `@` node tags,
+grounds and supplies are not terminals. So for a drawing with `in` on the left and `out`
+on the right,
+
+```julia
+to_subcircuit(ascii_schematic(cs_drawing); name="cs")      # terminals in, out
+```
+
+Pass `terminals=["inp", "inn", "outp", "outn"]` to pick the terminals or their order
+(the pin order of the subcircuit), and `schematic_netlist(s).terminals` shows the ones a
+drawing gives. Terminals and supply nodes are connected outside, so they don't
 trigger the DC-path or supply warnings; `rename` maps drawn names to netlist names, e.g.
 `Dict("vdd" => "vdd!", "vss" => "vss!")` for global supplies (declare them in the
 enclosing netlist with `.global vdd! vss!`). The same `rename` and `external` keywords work
