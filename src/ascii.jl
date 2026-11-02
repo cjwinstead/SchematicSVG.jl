@@ -182,10 +182,90 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
         end
     end
 
+    # Where a terminal word (port, gnd, supply) attaches through its own wire: the symbol
+    # position, the wire cell it connects to, and the side for its text; or nothing.
+    function terminalspot(t)
+        r = t.row
+        y = P(r, t.c0).y
+        ca, cb = above(t), below(t)
+        ca !== nothing && return Pt(P(r, ca).x, y + 0.3dy), (r - 1, ca), :below
+        cb !== nothing && return Pt(P(r, cb).x, y - 0.3dy), (r + 1, cb), :above
+        iswire(r, t.s0 - 1) && return P(r, t.s0), (r, t.s0 - 1), :right
+        iswire(r, t.s1 + 1) && return P(r, t.s1), (r, t.s1 + 1), :left
+        nothing
+    end
+
+    # Open circuits reach across blank cells to the terminal or wire at each end, so their
+    # ends can be terminals level with other wires: no connecting wires or bends needed.
+    termcell = Dict{Tuple{Int,Int},Int}()          # cell → index of a terminal-like token
+    for (i, t) in enumerate(toks)
+        t.kind in (:port, :gnd, :vdd, :vss) || continue
+        for c in t.s0:t.s1
+            termcell[(t.row, c)] = i
+        end
+    end
+    maxcol = maximum(length, g; init=0)
+    function reach(r, c, dr, dc)                    # first non-blank cell from (r, c)
+        while 1 <= r <= length(g) && 1 <= c <= maxcol
+            haskey(termcell, (r, c)) && return (:term, termcell[(r, c)], r, c)
+            iswire(r, c) && return (:wire, 0, r, c)
+            ch(r, c) == ' ' || return nothing
+            r += dr; c += dc
+        end
+        nothing
+    end
+    openends = Dict{Int,Tuple{Pt,Pt,Bool}}()        # open token → (first end, second end, horizontal)
+    attached = Dict{Int,Tuple{Pt,Symbol,Bool}}()    # terminal token → (spot, text side, above the open?)
+    for (i, t) in enumerate(toks)
+        t.kind == :open || continue
+        r = t.row
+        ends, horizontal = nothing, false
+        if !(iswire(r, t.s0 - 1) && iswire(r, t.s1 + 1))
+            for c in t.c0:t.c1
+                up, dn = reach(r - 1, c, -1, 0), reach(r + 1, c, 1, 0)
+                if up !== nothing && dn !== nothing
+                    ends = (up, dn)
+                    break
+                end
+            end
+        end
+        if ends === nothing
+            lf, rt = reach(r, t.s0 - 1, 0, -1), reach(r, t.s1 + 1, 0, 1)
+            lf !== nothing && rt !== nothing && ((ends, horizontal) = ((lf, rt), true))
+        end
+        ends === nothing && continue
+        pts = map(enumerate(ends)) do (j, e)
+            kind_, ti, er, ec = e
+            if kind_ == :wire
+                bump!(er, ec)
+                adjacent = horizontal ? ec == (j == 1 ? t.s0 - 1 : t.s1 + 1) : abs(er - r) == 1
+                # a dangling wire end reached across a gap is an open-circuit terminal
+                dangling = count(((u, v),) -> iswire(er + u, ec + v), ((1, 0), (-1, 0), (0, 1), (0, -1))) <= 1
+                adjacent || !dangling || push!(items, Port(P(er, ec), "", horizontal ? (j == 1 ? :left : :right) : :left))
+                return P(er, ec)
+            end
+            spot = terminalspot(toks[ti])
+            spot === nothing || return spot[1]       # the terminal keeps its own wire and place
+            side = horizontal ? (j == 1 ? :left : :right) : :left
+            attached[ti] = (P(er, ec), side, j == 1)
+            return P(er, ec)
+        end
+        openends[i] = (pts[1], pts[2], horizontal)
+    end
+
     # 2. Components and terminals.
-    for t in toks
+    for (ti, t) in enumerate(toks)
         r, k = t.row, t.kind
-        if k in BIPOLES
+        if k == :open && haskey(openends, ti)
+            first_, second_, horizontal = openends[ti]
+            d = t.dir
+            if (horizontal && d in (:up, :down)) || (!horizontal && d in (:left, :right))
+                d = :none
+            end
+            a, b = d in (:right, :down) ? (second_, first_) : (first_, second_)   # '+' end first
+            push!(items, Bipole(:open, a, b, ""; name=t.name))
+            push!(items, Voltage(a, b, get(labels, t.name, openlabel(t.name)); side=:auto))
+        elseif k in BIPOLES
             if iswire(r, t.s0 - 1) && iswire(r, t.s1 + 1)
                 horizontal = true
                 first_, second_ = P(r, t.s0 - 1), P(r, t.s1 + 1)
@@ -278,25 +358,24 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
             end
 
         else                                                  # :gnd, :vdd, :vss, :port
-            y = P(r, t.c0).y
-            ca, cb = above(t), below(t)
-            if ca !== nothing
-                p, nb, side = Pt(P(r, ca).x, y + 0.3dy), (r - 1, ca), :below
-            elseif cb !== nothing
-                p, nb, side = Pt(P(r, cb).x, y - 0.3dy), (r + 1, cb), :above
-            elseif iswire(r, t.s0 - 1)
-                p, nb, side = P(r, t.s0), (r, t.s0 - 1), :right
-            elseif iswire(r, t.s1 + 1)
-                p, nb, side = P(r, t.s1), (r, t.s1 + 1), :left
+            # `facing`: where the connection is, seen from the symbol (:below = connected
+            # from above, so a ground hangs down; :above = connected from below).
+            spot = terminalspot(t)
+            if spot !== nothing
+                p, nb, side = spot
+                push!(items, Wire(P(nb...), p)); bump!(nb...)
+                facing = side
+            elseif haskey(attached, ti)                # the end of an open circuit
+                p, side, first_end = attached[ti]
+                facing = first_end ? :above : :below   # above the open: connected from below
             else
                 @warn "$(t.name) is not connected to anything; skipped"
                 continue
             end
-            push!(items, Wire(P(nb...), p)); bump!(nb...)
             if k == :gnd
-                push!(items, Ground(p, side == :above))
+                push!(items, Ground(p, facing == :above))
             elseif k in (:vdd, :vss)
-                push!(items, Supply(p, get(labels, t.name, "V_{" * uppercase(t.name[2:end]) * "}"), side != :below))
+                push!(items, Supply(p, get(labels, t.name, "V_{" * uppercase(t.name[2:end]) * "}"), facing != :below))
             else
                 push!(items, Port(p, get(labels, t.name, t.name), side; name=t.name))
             end

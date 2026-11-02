@@ -138,15 +138,17 @@ models. The hybrid-π MOSFET model, with the labels set to math:
 ```julia
 hybrid_pi = """
    g        +------+------d
-   |        |      |
+            |      |
    Ovgs     G1     RO
-   |        |      |
-   +--------+------+------s
+            |      |
+   s--------+------+------s
 """
 ascii_schematic(hybrid_pi; labels=Dict("G1" => raw"$g_mv_{gs}$", "RO" => raw"$r_o$"))
 ```
 
-The `+` is at the top (or left) by default; `Ovgs^`/`<Ovgs` style markers work as for sources.
+An open circuit reaches across blank cells to the terminal or wire at each end, so `g` and
+`s` above become its terminals with no connecting wires (a dangling wire end reached this way
+gets a terminal circle). The `+` is at the top (or left) by default; `Ovgs^`/`<Ovgs` style markers work as for sources.
 In CircuiTikZ the same is `to[open, v=$v_{gs}$]`, and `v=` on any other component draws
 its polarity marks beside the symbol (`v^=` on the other side, `v<=` reversed). For placed
 drawings use `Voltage(plus, minus, label; side, kind)`. Voltage marks are annotation only;

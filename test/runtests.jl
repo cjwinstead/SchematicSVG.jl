@@ -516,14 +516,41 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
     @testset "voltage marks" begin
         hybridpi = """
            g        +------+------d
-           |        |      |
+                    |      |
            Ovgs     G1     RO
-           |        |      |
-           +--------+------+------s
+                    |      |
+           s--------+------+------s
         """
         s = ascii_schematic(hybridpi; labels=Dict("G1" => raw"$g_mv_{gs}$", "RO" => raw"$r_o$"))
         v = only(filter(x -> x isa Voltage, s.items))
         @test v.label == "v_{gs}" && v.kind == :open && v.plus.y > v.minus.y     # '+' at the gate
+        # the open circuit reaches its terminals across blank cells: g and s sit at its ends
+        g = only(filter(x -> x isa Port && x.name == "g", s.items))
+        s1 = first(sort(filter(x -> x isa Port && x.name == "s", s.items); by=x -> x.at.x))
+        @test g.at == v.plus && s1.at == v.minus && g.side == :left && s1.side == :left
+        @test !any(w -> w isa Wire && any(==(g.at), w.pts), s.items)              # no wire to g
+        # an old-style drawing with connecting wires still works
+        old = ascii_schematic("""
+           g        +------+------d
+           |        |      |
+           Ovgs     G1     RO
+           |        |      |
+           +--------+------+------s
+        """)
+        @test only(filter(x -> x isa Voltage, old.items)).label == "v_{gs}"
+        @test [d.name => d.nodes for d in schematic_netlist(old; elements=Dict("G1" => (1e-3, ("g", "s")), "RO" => 1e5)).devices] ==
+              ["G1" => ["d", "s"], "RO" => ["d", "s"]]
+        # a dangling wire end reached across a gap gets a terminal circle; a corner doesn't
+        gap = ascii_schematic("""
+           +-------R1-----+
+                          |
+           Ova            R2
+                          |
+           +--------------+
+           |
+          gnd
+        """)
+        @test count(x -> x isa Port && x.name == "", gap.items) == 1
         @test only(filter(x -> x isa Bipole && x.kind == :open, s.items)).label == ""
         @test only(filter(x -> x isa Bipole && x.name == "G1", s.items)).label == raw"$g_mv_{gs}$"
         svg = to_svg(s)
