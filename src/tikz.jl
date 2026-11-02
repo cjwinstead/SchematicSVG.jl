@@ -246,6 +246,9 @@ struct BipoleSpec
     note::String
     name::String
     side::Symbol          # :left for l= (CircuiTikZ default), :right for l_=
+    voltage::String       # v= label drawn as polarity marks (non-sources)
+    vside::Symbol         # :right for v= / v_= (CircuiTikZ default), :left for v^=
+    vrev::Bool            # v<= : '+' at the end of the path
     invert::Bool
     start_mark::Char      # '*' dot, 'o' open circle, ' ' none
     end_mark::Char
@@ -253,6 +256,7 @@ end
 
 function bipolespec(opts::AbstractString)
     kind = :short; label = ""; note = ""; vlabel = ""; name = ""; invert = false; side = :left
+    vside = :right; vrev = false
     sm = em = ' '
     found = false
     for (k, v) in parseopts(opts)
@@ -264,8 +268,12 @@ function bipolespec(opts::AbstractString)
             side = k == "l_" ? :right : :left
         elseif k in ("a", "a_", "a^", "annotation")
             note = something(v, "")
-        elseif k in ("v", "v_", "v^", "v<", "v>", "i", "i_", "i^", "i<", "i>")
-            vlabel = something(v, "")
+        elseif startswith(k, "v") && length(k) <= 3 && all(c -> c in "^_<>", k[2:end])
+            vlabel = something(v, "")                   # v=, v^=, v_=, v<=, v^<=, …
+            vside = '^' in k ? :left : :right
+            vrev = '<' in k
+        elseif k in ("i", "i_", "i^", "i<", "i>")
+            # current arrows aren't drawn
         elseif k in ("n", "name")
             name = something(v, "")
         elseif k == "invert"
@@ -278,9 +286,14 @@ function bipolespec(opts::AbstractString)
             kind = :box; found = true; label = k
         end
     end
-    isempty(label) && kind in (:V, :I, :cV, :cI, :sV) && (label = vlabel)
+    voltage = ""
+    if kind in (:V, :I, :cV, :cI, :sV)          # a source's v= is its label
+        isempty(label) && (label = vlabel)
+    else
+        voltage = vlabel
+    end
     isempty(name) && (name = name_from_label(label))
-    BipoleSpec(kind, siunitx(label), siunitx(note), name, side, invert, sm, em)
+    BipoleSpec(kind, siunitx(label), siunitx(note), name, side, siunitx(voltage), vside, vrev, invert, sm, em)
 end
 
 function mark!(st::TikzState, p::Pt, m::Char)
@@ -296,6 +309,12 @@ function addbipole!(st::TikzState, a::Pt, b::Pt, spec::BipoleSpec)
         x, y = spec.invert ? (b, a) : (a, b)
         side = spec.invert ? (spec.side == :left ? :right : :left) : spec.side
         push!(st.items, Bipole(spec.kind, x, y, spec.label; name=spec.name, note=spec.note, side))
+    end
+    if !isempty(spec.voltage)
+        # '+' at the path start unless v<; the side is relative to plus → minus
+        p, m = spec.vrev ? (b, a) : (a, b)
+        vs = spec.vrev ? (spec.vside == :left ? :right : :left) : spec.vside
+        push!(st.items, Voltage(p, m, spec.voltage; side=vs, kind=spec.kind == :short ? :open : spec.kind))
     end
     mark!(st, a, spec.start_mark)
     mark!(st, b, spec.end_mark)

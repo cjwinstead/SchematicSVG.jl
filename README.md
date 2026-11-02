@@ -102,6 +102,7 @@ ascii_schematic(art; labels=Dict("R1" => raw"$R_1 = 10\,k\Omega$"), dx=0.5, dy=0
 | `-\|P1` | PMOS, source on top |
 | `-\|Q1` | npn BJT, collector on top |
 | `OA1` | op-amp: + input wire from above, − input from below, output to the right |
+| `Ovgs` `O1` | open circuit with voltage marks: `+`/`−` at its ends and a label from the name (`Ovgs` → v<sub>gs</sub>, `O1` → none); same markers as V |
 | `gnd` `vdd` `vcc` `vss` `vee` | ground and supply rails |
 | other lowercase words | named terminals (open circle) |
 | `@name` | node tag: italic node name, no circle (see below) |
@@ -128,6 +129,28 @@ Rules of thumb:
 | `---@vx` / `@vx---` (at a wire end) | name beside the end of the wire |
 | on the line below / above a wire | name just under / over the wire |
 | in place of a `\|` in a vertical run | the wire passes through; the name sits to the right |
+
+### Voltage marks
+
+An `O` element is an open circuit that shows the voltage across it, as in small-signal
+models. The hybrid-π MOSFET model, with the labels set to math:
+
+```julia
+hybrid_pi = """
+   g        +------+------d
+   |        |      |
+   Ovgs     G1     RO
+   |        |      |
+   +--------+------+------s
+"""
+ascii_schematic(hybrid_pi; labels=Dict("G1" => raw"$g_mv_{gs}$", "RO" => raw"$r_o$"))
+```
+
+The `+` is at the top (or left) by default; `Ovgs^`/`<Ovgs` style markers work as for sources.
+In CircuiTikZ the same is `to[open, v=$v_{gs}$]`, and `v=` on any other component draws
+its polarity marks beside the symbol (`v^=` on the other side, `v<=` reversed). For placed
+drawings use `Voltage(plus, minus, label; side, kind)`. Voltage marks are annotation only;
+open circuits are left out of netlists.
 
 ## Annotations: values, models and node voltages
 

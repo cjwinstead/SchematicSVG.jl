@@ -513,6 +513,37 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test_throws ArgumentError to_subcircuit(ascii_schematic(cs); name="x", terminals=["in"])   # extension not loaded
     end
 
+    @testset "voltage marks" begin
+        hybridpi = """
+           g        +------+------d
+           |        |      |
+           Ovgs     G1     RO
+           |        |      |
+           +--------+------+------s
+        """
+        s = ascii_schematic(hybridpi; labels=Dict("G1" => raw"$g_mv_{gs}$", "RO" => raw"$r_o$"))
+        v = only(filter(x -> x isa Voltage, s.items))
+        @test v.label == "v_{gs}" && v.kind == :open && v.plus.y > v.minus.y     # '+' at the gate
+        @test only(filter(x -> x isa Bipole && x.kind == :open, s.items)).label == ""
+        @test only(filter(x -> x isa Bipole && x.name == "G1", s.items)).label == raw"$g_mv_{gs}$"
+        svg = to_svg(s)
+        @test occursin(">v<tspan dy=\"4\" font-size=\"10.5\">gs</tspan>", svg)
+        n = schematic_netlist(s; elements=Dict("G1" => (1e-3, ("g", "s")), "RO" => 1e5), external=["g", "d"])
+        @test [d.name => d.nodes for d in n.devices] == ["G1" => ["d", "s"], "RO" => ["d", "s"]]
+        @test isempty(only(filter(x -> x isa Voltage, ascii_schematic("  a--O1--b").items)).label)
+
+        # CircuiTikZ v= options
+        vm(src) = only(filter(x -> x isa Voltage, tikz_schematic(src).items))
+        v = vm(raw"\draw (0,2) to[open, v=$v_{gs}$] (0,0);")
+        @test v.plus == Pt(0, 2) && v.minus == Pt(0, 0) && v.side == :right && v.kind == :open
+        v = vm(raw"\draw (0,2) to[open, v<=$v$] (0,0);")
+        @test v.plus == Pt(0, 0) && v.side == :left                 # reversed, same side of the path
+        @test vm(raw"\draw (0,0) to[R, v^=$v_R$] (2,0);").side == :left
+        @test vm(raw"\draw (0,0) to[R, v=$v_R$] (2,0);").kind == :R
+        @test !any(x -> x isa Voltage, tikz_schematic(raw"\draw (0,0) to[V, v=$V_s$] (0,2);").items)  # a source's label
+        @test occursin("<svg", to_svg(tikz_schematic(raw"\draw (0,0) to[C, v=$v_C$] (2,0);")))
+    end
+
     @testset "quantities in SPICE text" begin
         rc = """
           in--R1--+--out

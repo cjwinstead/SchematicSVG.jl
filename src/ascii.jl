@@ -9,6 +9,8 @@
 # Words are components, keyed by their first letter (SPICE style):
 #   R C L            resistor, capacitor, inductor
 #   D                diode; marker gives the cathode side: D1> <D1 D1^ D1v
+#   O                open circuit with voltage marks: '+' and '−' at its ends and a label
+#                    from the name (Ovgs → v_gs; O1 has none), same markers as V
 #   V I              independent sources; marker points to '+' (V, default left/top) or
 #                    along the arrow (I, default right/down)
 #   E H / G F        dependent voltage / current sources (diamonds), same markers as V / I
@@ -24,9 +26,9 @@
 
 const KINDS = Dict('R' => :R, 'C' => :C, 'L' => :L, 'D' => :D, 'V' => :V, 'I' => :I,
                    'E' => :cV, 'H' => :cV, 'G' => :cI, 'F' => :cI,
-                   'N' => :nmos, 'P' => :pmos, 'Q' => :npn)
-const BIPOLES = (:R, :C, :L, :D, :V, :I, :cV, :cI)
-const POLAR = (:D, :V, :I, :cV, :cI)
+                   'N' => :nmos, 'P' => :pmos, 'Q' => :npn, 'O' => :open)
+const BIPOLES = (:R, :C, :L, :D, :V, :I, :cV, :cI, :open)
+const POLAR = (:D, :V, :I, :cV, :cI, :open)
 const SWITCHES = (:nmos, :pmos, :npn)
 const WIRECH = ('-', '|', '+', '*', ')')
 
@@ -42,6 +44,9 @@ function kindof(n::AbstractString)
 end
 
 deflabel(n) = length(n) == 1 ? n : string(n[1], "_{", n[2:end], "}")
+
+# Voltage label of an open circuit: "Ovgs" → v_{gs}, "Oout" → o_{ut}… ; "O1" → none.
+openlabel(n) = length(n) > 1 && isletter(n[2]) ? deflabel(n[2:end]) : ""
 
 struct Tok
     name::String
@@ -208,9 +213,14 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
             # current arrow right/down, '+' left/top.
             to2 = d == :none ? k in (:D, :I, :cI) : d in (:right, :down)
             toward, other = to2 ? (second_, first_) : (first_, second_)
-            a, b = k in (:V, :cV) ? (toward, other) :
+            a, b = k in (:V, :cV, :open) ? (toward, other) :
                    k in (:D, :I, :cI) ? (other, toward) : (first_, second_)
-            push!(items, Bipole(k, a, b, lbl(t); name=t.name))
+            if k == :open                  # an open circuit: just the voltage across it
+                push!(items, Bipole(:open, a, b, ""; name=t.name))
+                push!(items, Voltage(a, b, get(labels, t.name, openlabel(t.name)); side=:auto))
+            else
+                push!(items, Bipole(k, a, b, lbl(t); name=t.name))
+            end
 
         elseif k in SWITCHES
             ca, cb = above(t), below(t)

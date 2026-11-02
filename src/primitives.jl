@@ -138,6 +138,25 @@ struct Dot <: Placed
     at::Pt
 end
 
+"""
+    Voltage(plus, minus, label=""; side=:right, kind=:open)
+
+Voltage polarity marks, like CircuiTikZ `v=`: `+` at the `plus` end, `−` at the `minus`
+end, and `label` between them. For an open circuit (`kind=:open`) the signs sit on the
+line near its two ends; for a component (`kind=:R`, `:C`, …, the kind of the `Bipole`
+drawn between the same points) they flank its symbol. `side` is `:right` or `:left` of
+the plus → minus direction, or `:auto` (above horizontal parts, right of vertical ones).
+Voltage marks are annotation only: they don't affect the netlist.
+"""
+struct Voltage <: Placed
+    plus::Pt
+    minus::Pt
+    label::String
+    side::Symbol
+    kind::Symbol
+end
+Voltage(plus, minus, label=""; side=:right, kind=:open) = Voltage(plus, minus, label, side, kind)
+
 function pin(t::Transistor, p::Symbol)
     sx = t.xflip ? -1 : 1
     sy = t.yflip ? -1 : 1

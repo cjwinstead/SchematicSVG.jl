@@ -259,6 +259,54 @@ function render(io, s::Schematic, b::Bipole, _)
     end
 end
 
+# ─────────────────────────── voltage marks ──────────────────────────
+# Page-coordinate frame of a Voltage: ends, unit direction plus → minus, the unit normal
+# on its side, and the length.
+function voltageframe(s::Schematic, v::Voltage)
+    A, B = px(s, v.plus), px(s, v.minus)
+    d = B - A
+    L = hypot(d.x, d.y)
+    u = (1 / L) * d
+    left = Pt(u.y, -u.x)                 # left of plus → minus, as seen on the page
+    n = v.side == :left ? left : v.side == :right ? -1 * left :
+        (left.y > 1e-6 || (abs(left.y) < 1e-6 && left.x < 0)) ? -1 * left : left   # :auto
+    A, B, u, n, L
+end
+
+# Where the '+' and '−' go: on the line near the ends of an open circuit, or flanking the
+# symbol of a component.
+function signspots(s::Schematic, v::Voltage)
+    A, B, u, n, L = voltageframe(s, v)
+    if v.kind == :open
+        e = min(14.0, 0.25L)
+        return A + e * u, B - e * u
+    end
+    hw, hh, _ = body(v.kind)
+    mid = 0.5 * (A + B)
+    mid - (hw + 8) * u + (hh + 7) * n, mid + (hw + 8) * u + (hh + 7) * n
+end
+
+function render(io, s::Schematic, v::Voltage, _)
+    p, m = signspots(s, v)
+    h = 3.5
+    print(io, "<path d=\"M$(f(p.x - h)),$(f(p.y)) h$(f(2h)) M$(f(p.x)),$(f(p.y - h)) v$(f(2h)) ",
+              "M$(f(m.x - h)),$(f(m.y)) h$(f(2h))\"/>")
+end
+
+function texts(s::Schematic, v::Voltage)
+    isempty(v.label) && return TextBox[]
+    A, B, u, n, L = voltageframe(s, v)
+    mid = 0.5 * (A + B)
+    mt = texlabel(v.label)
+    if v.kind == :open
+        # horizontal open circuit: the label sits on the line between the signs
+        abs(u.y) < 0.5 && return [TextBox(mid, "middle", "middle", mt, :label)]
+        return [beside(mid, n, 6, mt, :label)]
+    end
+    _, hh, _ = body(v.kind)
+    [beside(mid, n, hh + 7, mt, :label)]
+end
+
 function arrowhead(tip::Pt, dir::Pt; len=5, w=2.5)
     u = (1 / hypot(dir.x, dir.y)) * dir
     p = Pt(-u.y, u.x)
@@ -346,6 +394,7 @@ anchors(t::Transistor, _) = [pin(t, p) for p in (:B, :C, :E)]
 anchors(o::Opamp, _) = [[pin(o, p) for p in (:inp, :inn, :out)]; o.at + Pt(0, 0.9 * o.w); o.at - Pt(0, 0.9 * o.w)]
 anchors(w::Wire, devs) = [p isa PinRef ? pin(devs[p.device], p.pin) : p for p in w.pts]
 anchors(x::Union{Ground,Supply,Port,NodeLabel,Dot}, _) = [x.at]
+anchors(v::Voltage, _) = [v.plus, v.minus]
 
 # Bounding box of every point and every text box (text width estimated per character).
 function bbox(s::Schematic, devs, boxes)
