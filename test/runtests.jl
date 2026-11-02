@@ -622,6 +622,58 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test length(collect(eachmatch(r"<polygon", to_svg(p)))) == 3
     end
 
+    @testset "captions" begin
+        art = """
+           in--R1--+--out
+                   |
+                  gnd
+          "RC stage"   <"a-b R2 ~i1"   "\$A_v\$">
+        """
+        s = ascii_schematic(art)
+        caps = filter(x -> x isa Caption, s.items)
+        @test [c.text for c in caps] == ["RC stage", "a-b R2 ~i1", raw"$A_v$"]
+        @test [c.align for c in caps] == [:center, :left, :right]
+        @test caps[1].at.x ≈ (2 + 11) / 2 * 0.5 && caps[1].at.y ≈ -3 * 0.8   # centred on the quotes
+        @test caps[2].at.x ≈ (17 - 1) * 0.5                          # the opening quote
+        # nothing inside the quotes is parsed
+        @test count(x -> x isa Bipole, s.items) == 1 && !any(x -> x isa Current, s.items)
+        svg = to_svg(s)
+        @test occursin(">RC stage</text>", svg) && occursin("text-anchor=\"start\"", svg)
+        @test occursin("A<tspan", svg)                                 # math in a caption
+        @test occursin(">x_1</text>", to_svg(Schematic([Caption(Pt(0, 0), "x_1")])))  # plain text as written
+    end
+
+    @testset "xscale / yscale" begin
+        art = """
+               out
+                |
+          in--|N1
+                |
+               gnd
+        """
+        s = ascii_schematic(art)
+        w(svg) = parse(Float64, match(r"width=\"([0-9.]+)\"", svg).captures[1])
+        wide = Schematic(s; xscale=2)
+        @test wide.xscale == 2 && wide.items === s.items
+        @test w(to_svg(wide)) > w(to_svg(s))
+        # symbols keep their size: the same transistor markup, plus extra leads to the pins
+        body(svg) = match(r"<g transform=\"translate\([^)]*\) (scale\([^)]*\))", svg).captures[1]
+        @test body(to_svg(wide)) == body(to_svg(s))
+        @test count("<line", to_svg(wide)) > count("<line", to_svg(s))
+        r(svg) = match(r"<polyline points=\"-20,0[^\"]*\"", svg).match
+        rc = ascii_schematic("  a--R1--b")
+        @test r(to_svg(rc)) == r(to_svg(Schematic(rc; xscale=1.7, yscale=0.6)))
+        @test ascii_schematic(art; yscale=1.5).yscale == 1.5
+        @test_throws ArgumentError Schematic(s; xscal=2)
+        # annotations keep the settings
+        @test annotate(wide, Dict("N1" => "nch")).xscale == 2
+        # CircuiTikZ environment xscale/yscale, combined with the keywords
+        t = tikz_schematic(raw"\begin{circuitikz}[xscale=2, yscale=0.5] \draw (0,0) to[R] (2,0); \end{circuitikz}";
+                           xscale=1.5)
+        @test t.xscale == 3 && t.yscale == 0.5
+        @test_logs (:warn, r"mirroring") tikz_schematic(raw"\begin{circuitikz}[xscale=-1] \draw (0,0) to[R] (2,0); \end{circuitikz}")
+    end
+
     @testset "quantities in SPICE text" begin
         rc = """
           in--R1--+--out

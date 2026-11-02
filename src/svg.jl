@@ -6,8 +6,25 @@ Base.@kwdef struct Schematic
     background::String = "white" # "none" for transparent
     font::String = "serif"
     values::Dict{String,Any} = Dict{String,Any}()   # raw element values/objects, by NAME
+    xscale::Float64 = 1.0        # spread the layout horizontally / vertically; symbols and
+    yscale::Float64 = 1.0        # text keep their size
 end
 Schematic(items::AbstractVector; kw...) = Schematic(; items=collect(Placed, items), kw...)
+
+"""
+    Schematic(s::Schematic; kw...)
+
+A copy of `s` with some settings changed, e.g. `Schematic(s; xscale=1.5)` to spread a
+drawing out horizontally, or `Schematic(s; background="none")`.
+"""
+function Schematic(s::Schematic; kw...)
+    fields = Dict{Symbol,Any}(n => getfield(s, n) for n in fieldnames(Schematic))
+    for (k, v) in kw
+        haskey(fields, k) || throw(ArgumentError("Schematic has no setting `$k`"))
+        fields[k] = v
+    end
+    Schematic(; fields...)
+end
 
 Base.show(io::IO, ::MIME"image/svg+xml", s::Schematic) = print(io, to_svg(s))
 
@@ -16,7 +33,19 @@ f(x) = string(round(x; digits=2))
 
 xmlesc(s) = replace(s, "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&quot;")
 
-px(s::Schematic, p::Pt) = Pt(s.scale * p.x, -s.scale * p.y)
+px(s::Schematic, p::Pt) = Pt(s.scale * s.xscale * p.x, -s.scale * s.yscale * p.y)
+
+# With xscale/yscale ≠ 1 a symbol keeps its size, so its pins (drawn `off` from the centre,
+# in circuit units) no longer land on the stretched pin positions: draw the extra lead.
+function leads(io, s::Schematic, at::Pt, offs)
+    C = px(s, at)
+    for off in offs
+        body = C + Pt(s.scale * off.x, -s.scale * off.y)
+        pinpx = px(s, at + off)
+        hypot(pinpx.x - body.x, pinpx.y - body.y) > 0.01 &&
+            print(io, "<line x1=\"$(f(body.x))\" y1=\"$(f(body.y))\" x2=\"$(f(pinpx.x))\" y2=\"$(f(pinpx.y))\"/>")
+    end
+end
 
 """Minimal LaTeX → SVG text: strips `\$`, turns `_x`/`_{xy}` into subscripts (`\\_` is a
 literal underscore), maps a few macros. Returns (markup, number of visible characters). Subscripts use `dy` rather than
@@ -179,6 +208,11 @@ function texts(s::Schematic, p::Port)
     isempty(p.label) && return TextBox[]
     off, anchor, base = SIDE[p.side]
     [TextBox(px(s, p.at) + off, anchor, base, texlabel(p.label), :label)]
+end
+
+function texts(s::Schematic, c::Caption)
+    [TextBox(px(s, c.at), c.align == :left ? "start" : c.align == :right ? "end" : "middle",
+             "middle", notetext(c.text), :caption)]
 end
 
 # Node names sit just off the wire; above/below they start a little to the right of the
@@ -368,6 +402,7 @@ function render(io, s::Schematic, t::Transistor, _)
     sy = t.yflip ? -k : k
     print(io, "<g transform=\"translate($(f(C.x)),$(f(C.y))) scale($(f(sx)),$(f(sy)))\" ",
               "stroke-width=\"$(f(1.5 / k))\">", tbody(t.kind, -25 * t.w / t.h), "</g>")
+    leads(io, s, t.at, [pin(t, p) - t.at for p in (:B, :C, :E)])
 end
 
 function render(io, s::Schematic, o::Opamp, _)
@@ -380,6 +415,7 @@ function render(io, s::Schematic, o::Opamp, _)
               "<polygon points=\"-18,-22 -18,22 22,0\"/>",
               "<path d=\"M-25,$(f(-y)) H-18 M-25,$(f(y)) H-18 M22,0 H25 ",
               "M$(f(-12 - a)),$(f(p)) h$(f(2a)) M-12,$(f(p - a)) v$(f(2a)) M$(f(-12 - a)),$(f(m)) h$(f(2a))\"/></g>")
+    leads(io, s, o.at, [pin(o, p) - o.at for p in (:inp, :inn, :out)])
 end
 
 function render(io, s::Schematic, w::Wire, devs)
@@ -409,6 +445,7 @@ function render(io, s::Schematic, p::Port, _)
 end
 
 render(io, ::Schematic, ::NodeLabel, _) = nothing
+render(io, ::Schematic, ::Caption, _) = nothing
 
 function render(io, s::Schematic, d::Dot, _)
     C = px(s, d.at)
@@ -421,7 +458,7 @@ anchors(b::Bipole, _) = [b.a, b.b]
 anchors(t::Transistor, _) = [pin(t, p) for p in (:B, :C, :E)]
 anchors(o::Opamp, _) = [[pin(o, p) for p in (:inp, :inn, :out)]; o.at + Pt(0, 0.9 * o.w); o.at - Pt(0, 0.9 * o.w)]
 anchors(w::Wire, devs) = [p isa PinRef ? pin(devs[p.device], p.pin) : p for p in w.pts]
-anchors(x::Union{Ground,Supply,Port,NodeLabel,Dot}, _) = [x.at]
+anchors(x::Union{Ground,Supply,Port,NodeLabel,Dot,Caption}, _) = [x.at]
 anchors(v::Voltage, _) = [v.plus, v.minus]
 anchors(c::Current, _) = [c.a, c.b]
 

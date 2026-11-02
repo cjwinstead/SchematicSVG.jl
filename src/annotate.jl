@@ -160,5 +160,5 @@ function annotate(s::Schematic, elements=(); nodes=Dict(), style::Symbol=:below)
             it
         end
     end
-    Schematic(collect(Placed, items), s.scale, s.stroke, s.background, s.font, values)
+    Schematic(s; items=collect(Placed, items), values)
 end

@@ -106,6 +106,7 @@ ascii_schematic(art; labels=Dict("R1" => raw"$R_1 = 10\,k\Omega$"), dx=0.5, dy=0
 | `gnd` `vdd` `vcc` `vss` `vee` | ground and supply rails |
 | other lowercase words | named terminals (open circle) |
 | `@name` | node tag: italic node name, no circle (see below) |
+| `"text"` `<"text"` `"text">` | caption: centred on the quotes, starting at the opening quote, or ending at the closing one (see below) |
 | `~i1>` `<~i1` `~i1^` `~i1v` | current arrow inline in a wire, labelled from the name (`~i1` → i<sub>1</sub>); default right/down (see below) |
 
 Rules of thumb:
@@ -183,6 +184,55 @@ component it sits on the lead after the symbol. `i_=` puts the label on the othe
 `i<=` reverses the arrow (before the symbol), and `i_>=`, `i^<=`, `i>_=`, `i<^=` and so on
 follow CircuiTikZ's placement rules. For placed drawings use
 `Current(a, b, label; side, into, pos)` (below).
+
+### Captions
+
+Text in double quotes is a caption, such as a title under each stage. Nothing inside the
+quotes is parsed, so it may contain dashes, letters and `$…$` math:
+
+```julia
+two_stage = """
+          vdd            vdd
+           |              |
+           RD             |
+           |              |
+           *--@x---+      |
+           |       |      |
+   in----|N1       +----|N2
+           |              |
+          gnd             *---out
+                          |
+                          RS
+                          |
+                         gnd
+
+    "Common source"      <"Source follower"
+"""
+ascii_schematic(two_stage)
+```
+
+A caption is centred on its quotes by default. A drawn character is narrower than a grid
+cell, and markup like `\approx` takes up room in the source, so when the text should line
+up with something use `<"text"` (it starts at the opening quote) or `"text">` (it ends at
+the closing quote). For placed drawings use `Caption(at, text; align)`.
+
+## Spacing: `xscale` and `yscale`
+
+`xscale` and `yscale` spread a drawing out (or pull it in) horizontally and vertically
+without changing the size of symbols or text; wires and leads get longer or shorter.
+They work as keywords of `ascii_schematic`, `tikz_schematic` and `Schematic`, and
+`Schematic(s; kw...)` copies a finished drawing with new settings:
+
+```julia
+s = ascii_schematic(two_stage)
+Schematic(s; xscale=1.5)               # wider
+Schematic(s; xscale=1.2, yscale=0.8)   # wider and flatter
+```
+
+A CircuiTikZ environment's own `[xscale=…, yscale=…]` options do the same (as in TikZ
+without `transform shape`). `scale` is different: it sets the pixels per unit, so it also
+resizes transistors and op-amps. Pulling a drawing in too far makes wires overlap
+symbols; for ASCII drawings, values down to about 0.75 are safe.
 
 ## Annotations: values, models and node voltages
 
@@ -371,6 +421,7 @@ Schematic([
 | `Port(at, label, side; name)`, `NodeLabel(at, name, side; label)` | terminal with circle / node name only; `side` ∈ `:left :right :above :below` |
 | `Ground(at, flip=false)`, `Supply(at, label, up)`, `Dot(at)` | |
 | `Voltage(plus, minus, label; side, kind)` | polarity marks: on the line for `kind=:open`, flanking the symbol of a component of that kind |
+| `Caption(at, text; align)` | free text centred on `at` (`align=:left`/`:right` to start/end there); `$…$` for math |
 | `Current(a, b, label; side, into, pos, kind)` | current arrow on the wire a→b, pointing at `b` (at `a` when `into`), `pos` of the way along; with a component `kind` it goes on the end lead (`pos ≥ 0.5`) or the start lead. For currents at a node use `a` = the node, e.g. `Current(node, Pt(1, 0), "i_2"; pos=0.4)` |
 
 `note` is the second line of text (value or model) that annotations fill in.
@@ -379,8 +430,9 @@ Labels accept a small subset of LaTeX: `$…$` is stripped, `_x` / `_{xy}` becom
 subscripts (`\_` is a literal underscore), `\mathrm{…}`/`\text{…}` keep their text,
 and Greek letters plus `\infty \cdot \times \pm \approx \parallel \, \;` map to Unicode.
 
-`Schematic(items; scale=50, stroke="#222", background="white", font="serif")` sets pixels
-per unit, line colour, background (`"none"` for transparent) and label font.
+`Schematic(items; scale=50, stroke="#222", background="white", font="serif", xscale=1, yscale=1)`
+sets pixels per unit, line colour, background (`"none"` for transparent), label font and
+the layout spread (see [Spacing](#spacing-xscale-and-yscale)).
 `to_svg(s)` returns the SVG string if you want to save or embed it elsewhere.
 
 ## Tests

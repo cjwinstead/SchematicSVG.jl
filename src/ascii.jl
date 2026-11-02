@@ -25,6 +25,9 @@
 #   ~i1>             current arrow inline in a wire (--~i1>-- or between '|' cells), label
 #                    from the name (~i1 → i_1, ~iD → i_D). Markers give the direction:
 #                    ~i1> <~i1 ~i1^ ~i1v; the default is right / down. Annotation only.
+#   "text"           caption centred on the quotes, e.g. a title under a stage; <"text"
+#                    starts it at the opening quote and "text"> ends it at the closing
+#                    one. May hold $…$ math; nothing inside the quotes is parsed.
 # A word with wires left and right is horizontal; with wires above and below, vertical.
 
 const KINDS = Dict('R' => :R, 'C' => :C, 'L' => :L, 'D' => :D, 'V' => :V, 'I' => :I,
@@ -70,6 +73,13 @@ function tokenize(g)
         ch(i) = 1 <= i <= length(row) ? row[i] : ' '
         c = 1
         while c <= length(row)
+            if row[c] == '"' && (e = findnext(==('"'), row, c + 1)) !== nothing
+                left, right = ch(c - 1) == '<', ch(e + 1) == '>'
+                push!(toks, Tok(String(row[c+1:e-1]), :caption, r, c, e, c - left, e + right,
+                                left ? :left : right ? :right : :none, :none))
+                c = e + 1 + right
+                continue
+            end
             if row[c] == '@' && c < length(row) && (isletter(row[c+1]) || isdigit(row[c+1]))
                 c0 = c + 1
                 c = c0
@@ -151,7 +161,9 @@ Turn ASCII art into a schematic (see the legend in the source).
   drawing; see [`annotate`](@ref).
 - `labels`: overrides the default label of any word or node tag, e.g.
   `Dict("R1" => raw"\$R_{load}\$")`.
-- `dx`/`dy`: size of a character cell in circuit units. Other keywords go to `Schematic`.
+- `dx`/`dy`: size of a character cell in circuit units. Other keywords go to `Schematic`,
+  e.g. `xscale=1.5` / `yscale=0.8` to spread or tighten the layout while symbols and text
+  keep their size.
 """
 function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::Symbol=:below,
                          labels=Dict{String,String}(), dx=0.5, dy=0.8, kw...)
@@ -353,6 +365,10 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
             if iswire(r, t.s1 + 1)
                 push!(items, Wire(O + Pt(0.5, 0), P(r, t.s1 + 1))); bump!(r, t.s1 + 1)
             end
+
+        elseif k == :caption
+            at = t.dir == :left ? P(r, t.c0) : t.dir == :right ? P(r, t.c1) : 0.5 * (P(r, t.c0) + P(r, t.c1))
+            push!(items, Caption(at, t.name; align=t.dir == :none ? :center : t.dir))
 
         elseif k == :current
             text = get(labels, t.name, deflabel(t.name))

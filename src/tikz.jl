@@ -539,17 +539,25 @@ return a `Schematic` that displays as SVG. Supports the common subset of CircuiT
 the README); statements it can't read are skipped with a warning. `elements`, `nodes`
 and `style` add annotations as in [`annotate`](@ref); other keywords go to `Schematic`.
 
-Coordinates are taken as cm, so the default `scale=50` draws 1 cm as 50 px.
+Coordinates are taken as cm, so the default `scale=50` draws 1 cm as 50 px. The
+environment's `xscale=`/`yscale=` (and these keywords) spread the layout while symbols and
+text keep their size.
 """
 function tikz_schematic(src::AbstractString; elements=(), nodes=Dict(), style::Symbol=:below, kw...)
     s = stripcomments(src)
     scale = 1.0
+    xs = ys = 1.0                               # environment xscale= / yscale=
     shapes = false
     m = match(r"\\begin\{(circuitikz|tikzpicture)\}(\[[^\]]*\])?(.*?)\\end\{\1\}"s, s)
     if m !== nothing
         if m.captures[2] !== nothing
             for (k, v) in parseopts(m.captures[2][2:end-1])
                 k == "scale" && v !== nothing && (scale = tikznum(v))
+                if k in ("xscale", "yscale") && v !== nothing
+                    x = tikznum(v)
+                    x > 0 || (warnskip("environment $k=$v (mirroring) is not supported; ignored"); continue)
+                    k == "xscale" ? (xs = x) : (ys = x)
+                end
                 k == "transform shape" && (shapes = true)
             end
         end
@@ -578,7 +586,12 @@ function tikz_schematic(src::AbstractString; elements=(), nodes=Dict(), style::S
             warnskip("$(err.msg) in '$(first(stmt, 60))'; the rest of that statement is skipped")
         end
     end
-    sch = Schematic(st.items; kw...)
+    # xscale/yscale stretch the layout but not the symbols (as in TikZ without
+    # `transform shape`); they multiply any xscale/yscale keywords given here
+    opts = Dict{Symbol,Any}(kw)
+    opts[:xscale] = xs * get(opts, :xscale, 1.0)
+    opts[:yscale] = ys * get(opts, :yscale, 1.0)
+    sch = Schematic(st.items; opts...)
     isempty(elements) && isempty(nodes) ? sch : annotate(sch, elements; nodes, style)
 end
 

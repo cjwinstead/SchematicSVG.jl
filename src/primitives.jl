@@ -182,6 +182,20 @@ end
 Current(a, b, label=""; side=:auto, into=false, pos=0.5, kind=:short) =
     Current(a, b, label, side, into, pos, kind)
 
+"""
+    Caption(at, text; align=:center)
+
+Free text, such as a title under part of a drawing, centred on `at` (or starting / ending
+there with `align=:left` / `:right`). Plain text is shown as written; text with `\$…\$`
+uses the same LaTeX subset as labels.
+"""
+struct Caption <: Placed
+    at::Pt
+    text::String
+    align::Symbol
+end
+Caption(at, text; align=:center) = Caption(at, text, align)
+
 function pin(t::Transistor, p::Symbol)
     sx = t.xflip ? -1 : 1
     sy = t.yflip ? -1 : 1
