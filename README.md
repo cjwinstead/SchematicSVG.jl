@@ -231,8 +231,11 @@ Schematic(s; xscale=1.2, yscale=0.8)   # wider and flatter
 
 A CircuiTikZ environment's own `[xscale=…, yscale=…]` options do the same (as in TikZ
 without `transform shape`). `scale` is different: it sets the pixels per unit, so it also
-resizes transistors and op-amps. Pulling a drawing in too far makes wires overlap
-symbols; for ASCII drawings, values down to about 0.75 are safe.
+resizes transistors and op-amps. When a drawing is pulled in, a symbol's leads get
+shorter but never run into the symbol: a PMOS gate wire stops outside the bubble, MOSFET
+and BJT leads stop at the bars, and an op-amp keeps its inputs where they are and slides
+right so its input leads keep some length. Very small values (below about 0.5) can still
+crowd neighbouring parts.
 
 ## Annotations: values, models and node voltages
 

@@ -659,7 +659,22 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         # symbols keep their size: the same transistor markup, plus extra leads to the pins
         body(svg) = match(r"<g transform=\"translate\([^)]*\) (scale\([^)]*\))", svg).captures[1]
         @test body(to_svg(wide)) == body(to_svg(s))
-        @test count("<line", to_svg(wide)) > count("<line", to_svg(s))
+        @test occursin("M-50.0,0 H-14", to_svg(wide))                    # the gate lead stretches
+        # squeezed, the PMOS gate lead stops short of its bubble and the gate wire ends there
+        pm = ascii_schematic(replace(art, "N1" => "P1"))
+        narrow = Schematic(pm; xscale=0.5)
+        svg = to_svg(narrow)
+        @test occursin("M-23.0,0 H-20", svg)
+        C = SchematicSVG.px(narrow, only(filter(x -> x isa Transistor, pm.items)).at)
+        @test occursin("$(SchematicSVG.f(C.x - 23)),$(SchematicSVG.f(C.y))", svg)
+        @test occursin("V-25.0", svg)                                    # drain/source unchanged
+        @test occursin("V-12.0", to_svg(Schematic(pm; yscale=0.3)))      # … or stopped at the channel
+        # squeezed op-amp: the inputs stay put and the symbol slides right
+        o = SchematicSVG.Opamp("A", Pt(0, 0))
+        so = Schematic([o, Wire(Pt(-1, 0.2), PinRef("A", :inp)), Wire(PinRef("A", :out), Pt(1, 0))]; xscale=0.5)
+        a, b = SchematicSVG.pinpx(so, o, :inp), SchematicSVG.px(so, pin(o, :inp))
+        @test a.x ≈ b.x && a.y ≈ b.y
+        @test occursin("translate(7.5,", to_svg(so))
         r(svg) = match(r"<polyline points=\"-20,0[^\"]*\"", svg).match
         rc = ascii_schematic("  a--R1--b")
         @test r(to_svg(rc)) == r(to_svg(Schematic(rc; xscale=1.7, yscale=0.6)))

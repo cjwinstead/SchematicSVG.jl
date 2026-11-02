@@ -35,16 +35,6 @@ xmlesc(s) = replace(s, "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&q
 
 px(s::Schematic, p::Pt) = Pt(s.scale * s.xscale * p.x, -s.scale * s.yscale * p.y)
 
-# With xscale/yscale ≠ 1 a symbol keeps its size, so its pins (drawn `off` from the centre,
-# in circuit units) no longer land on the stretched pin positions: draw the extra lead.
-function leads(io, s::Schematic, at::Pt, offs)
-    C = px(s, at)
-    for off in offs
-        body = C + Pt(s.scale * off.x, -s.scale * off.y)
-        pinpx = px(s, at + off)
-        hypot(pinpx.x - body.x, pinpx.y - body.y) > 0.01 &&
-            print(io, "<line x1=\"$(f(body.x))\" y1=\"$(f(body.y))\" x2=\"$(f(pinpx.x))\" y2=\"$(f(pinpx.y))\"/>")
-    end
 end
 
 """Minimal LaTeX → SVG text: strips `\$`, turns `_x`/`_{xy}` into subscripts (`\\_` is a
@@ -187,8 +177,7 @@ function texts(s::Schematic, t::Transistor)
 end
 
 function texts(s::Schematic, o::Opamp)
-    k = s.scale * o.w / 25
-    C = px(s, o.at)
+    C, k = opampgeom(s, o)
     out = TextBox[]
     isempty(o.label) || push!(out, TextBox(C + Pt(4k, -20k), "start", "auto", texlabel(o.label), :label))
     isempty(o.note)  || push!(out, TextBox(C + Pt(4k, 20k + 12), "start", "auto", notetext(o.note), :note))
@@ -266,8 +255,8 @@ const ARROW = "<path d=\"M-8,0 h14\"/><polygon points=\"9,0 3,-4 3,4\" fill=\"cu
 # and half-size per symbol (the diamond needs more clearance from its slanted sides).
 const SIGNS = Dict(:V => (9.0, 3.5), :cV => (6.5, 3.0))
 
-function render(io, s::Schematic, b::Bipole, _)
-    A, B = px(s, b.a), px(s, b.b)
+function render(io, s::Schematic, b::Bipole, ctx)
+    A, B = drawn(s, ctx, b.a), drawn(s, ctx, b.b)
     d = B - A
     L = hypot(d.x, d.y)
     θ = atan(d.y, d.x) * 180 / π
@@ -379,48 +368,103 @@ end
 
 # Symbol in local units with top pin (0,-25), bottom pin (0,25) and the control pin at
 # (gx,0); gx = -25 when the gate is as far from the centre as the drain.
-function tbody(kind::Symbol, gx=-25)
+function tbody(kind::Symbol, gx=-25, ty=25)
     if kind in (:npn, :pnp)
         s = "<circle cx=\"-4\" cy=\"0\" r=\"17\"/>" *
-            "<path d=\"M$(f(gx)),0 H-10 M-10,-12 V12 M-10,-5 L0,-15 V-25 M-10,5 L0,15 V25\"/>"
+            "<path d=\"M$(f(gx)),0 H-10 M-10,-12 V12 M-10,-5 L0,-15 V$(f(-ty)) M-10,5 L0,15 V$(f(ty))\"/>"
         dir = Pt(10, 10)
         s *= kind == :npn ? arrowhead(Pt(-2, 13), dir) : arrowhead(Pt(-8, 7), -1 * dir)
         return s
     else # :nmos, :pmos
         ge = kind == :pmos ? -20 : -14
-        s = "<path d=\"M$(f(gx)),0 H$ge M-14,-10 V10 M-10,-13 V13 M-10,-8 H0 V-25 M-10,8 H0 V25\"/>"
+        s = "<path d=\"M$(f(gx)),0 H$ge M-14,-10 V10 M-10,-13 V13 M-10,-8 H0 V$(f(-ty)) M-10,8 H0 V$(f(ty))\"/>"
         kind == :pmos && (s *= "<circle cx=\"-17\" cy=\"0\" r=\"3\"/>")
         s *= kind == :nmos ? arrowhead(Pt(-2, 8), Pt(1, 0)) : arrowhead(Pt(-8, 8), Pt(-1, 0))
         return s
     end
 end
 
+# ───────────────────────────── pins ─────────────────────────────────
+# A symbol keeps its size under xscale/yscale, so its leads stretch or shrink to reach the
+# scaled pin positions, but never into the symbol itself: a pin is drawn at least this far
+# from the centre (local units, where the default pins are at 25). Wires that end on a pin
+# end where it is drawn.
+const TPINMIN = Dict(:nmos => (17.0, 12.0), :pmos => (23.0, 12.0),   # (gate, drain/source):
+                     :npn => (13.0, 19.0), :pnp => (13.0, 19.0))     # clear of the bubble/bars
+
+tscale(s::Schematic, t::Transistor) = s.scale * t.h / 25           # px per local unit
+
+function pinpx(s::Schematic, t::Transistor, p::Symbol)
+    C = px(s, t.at)
+    d = px(s, pin(t, p)) - C
+    g, v = TPINMIN[t.kind]
+    m = (p in (:B, :G) ? g : v) * tscale(s, t)
+    L = hypot(d.x, d.y)
+    L >= m ? C + d : C + (m / L) * d
+end
+
+oscale(s::Schematic, o::Opamp) = s.scale * o.w / 25
+
+# Op-amp geometry: the drawn centre (px) and, in local units from it, the input x, input y
+# and output x. The inputs stay where they are placed; when xscale squeezes them closer
+# than 20 local units (the triangle's back is at 18) the symbol slides right instead, and
+# the output lead reaches at least 2 units past the tip. Inputs stay on the triangle's
+# back (|y| ≤ 18).
+function opampgeom(s::Schematic, o::Opamp)
+    k = oscale(s, o)
+    raw = s.scale * s.xscale * o.w / k
+    xi = max(raw, 20.0)
+    shift = xi - raw
+    C = px(s, o.at) + Pt(k * shift, 0)
+    C, k, xi, min(s.scale * s.yscale * o.h / k, 18.0), max(raw - shift, 24.0)
+end
+
+function pinpx(s::Schematic, o::Opamp, p::Symbol)
+    C, k, xi, yi, xo = opampgeom(s, o)
+    up = o.inv_up ? p == :inn : p == :inp           # the input on top
+    p == :out ? C + Pt(k * xo, 0) : C + Pt(-k * xi, up ? -k * yi : k * yi)
+end
+
+# Where each device pin (circuit units) is drawn (px).
+function pinmap(s::Schematic)
+    m = Dict{Pt,Pt}()
+    for it in s.items
+        it isa Transistor && for p in (:B, :C, :E)
+            m[pin(it, p)] = pinpx(s, it, p)
+        end
+        it isa Opamp && for p in (:inp, :inn, :out)
+            m[pin(it, p)] = pinpx(s, it, p)
+        end
+    end
+    m
+end
+drawn(s::Schematic, ctx, p::Pt) = get(ctx.pins, p, px(s, p))
+
 function render(io, s::Schematic, t::Transistor, _)
     C = px(s, t.at)
-    k = s.scale * t.h / 25             # pins land exactly on pin(t, ...)
+    k = tscale(s, t)
     sx = t.xflip ? -k : k
     sy = t.yflip ? -k : k
+    g = pinpx(s, t, :B) - C
+    v = pinpx(s, t, :C) - C
     print(io, "<g transform=\"translate($(f(C.x)),$(f(C.y))) scale($(f(sx)),$(f(sy)))\" ",
-              "stroke-width=\"$(f(1.5 / k))\">", tbody(t.kind, -25 * t.w / t.h), "</g>")
-    leads(io, s, t.at, [pin(t, p) - t.at for p in (:B, :C, :E)])
+              "stroke-width=\"$(f(1.5 / k))\">",
+              tbody(t.kind, -hypot(g.x, g.y) / k, hypot(v.x, v.y) / k), "</g>")
 end
 
 function render(io, s::Schematic, o::Opamp, _)
-    C = px(s, o.at)
-    k = s.scale * o.w / 25            # pins land exactly on pin(o, ...)
-    y = 25 * o.h / o.w                # input offset in local units (page y points down)
+    C, k, xi, y, xo = opampgeom(s, o) # pins in local units (page y points down)
     p, m = o.inv_up ? (y, -y) : (-y, y)          # y of the + and − inputs
     a = min(3.0, 3.5 / k)             # sign half-size: about 3.5 px whatever the scale
     print(io, "<g transform=\"translate($(f(C.x)),$(f(C.y))) scale($(f(k)))\" stroke-width=\"$(f(1.5 / k))\">",
               "<polygon points=\"-18,-22 -18,22 22,0\"/>",
-              "<path d=\"M-25,$(f(-y)) H-18 M-25,$(f(y)) H-18 M22,0 H25 ",
+              "<path d=\"M$(f(-xi)),$(f(-y)) H-18 M$(f(-xi)),$(f(y)) H-18 M22,0 H$(f(xo)) ",
               "M$(f(-12 - a)),$(f(p)) h$(f(2a)) M-12,$(f(p - a)) v$(f(2a)) M$(f(-12 - a)),$(f(m)) h$(f(2a))\"/></g>")
-    leads(io, s, o.at, [pin(o, p) - o.at for p in (:inp, :inn, :out)])
 end
 
-function render(io, s::Schematic, w::Wire, devs)
+function render(io, s::Schematic, w::Wire, ctx)
     pts = map(w.pts) do p
-        q = px(s, p isa PinRef ? pin(devs[p.device], p.pin) : p)
+        q = drawn(s, ctx, p isa PinRef ? pin(ctx.devs[p.device], p.pin) : p)
         "$(f(q.x)),$(f(q.y))"
     end
     print(io, "<polyline points=\"", join(pts, " "), "\"/>")
@@ -484,6 +528,7 @@ function to_svg(s::Schematic)
     devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
     boxes = reduce(vcat, (texts(s, it) for it in s.items); init=TextBox[])
     x, y, w, h = bbox(s, devs, boxes)
+    ctx = (devs=devs, pins=pinmap(s))
     io = IOBuffer()
     print(io, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"$(f(x)) $(f(y)) $(f(w)) $(f(h))\" ",
               "width=\"$(f(w))\" height=\"$(f(h))\" font-family=\"$(s.font)\" font-size=\"15\" ",
@@ -493,7 +538,7 @@ function to_svg(s::Schematic)
     print(io, "<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" ",
               "stroke-linecap=\"round\" stroke-linejoin=\"round\">")
     for it in s.items
-        render(io, s, it, devs)
+        render(io, s, it, ctx)
     end
     for t in boxes
         render(io, s, t)
