@@ -680,6 +680,12 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test r(to_svg(rc)) == r(to_svg(Schematic(rc; xscale=1.7, yscale=0.6)))
         @test ascii_schematic(art; yscale=1.5).yscale == 1.5
         @test_throws ArgumentError Schematic(s; xscal=2)
+        # border: on by default, inset by half its width, background rounded to match
+        @test occursin(r"<rect [^>]*rx=\"10.0\" fill=\"none\" stroke=\"#9a9a9a\" stroke-width=\"3.0\"", to_svg(s))
+        @test occursin("rx=\"11.5\" fill=\"white\"", to_svg(s))
+        @test !occursin("stroke-width=\"3.0\"", to_svg(Schematic(s; border=false)))
+        @test !occursin("rx=", to_svg(ascii_schematic(art; border=false)))
+        @test count("<rect", to_svg(Schematic(s; background="none"))) == 1
         # annotations keep the settings
         @test annotate(wide, Dict("N1" => "nch")).xscale == 2
         # CircuiTikZ environment xscale/yscale, combined with the keywords

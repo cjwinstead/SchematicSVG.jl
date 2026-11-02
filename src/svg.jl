@@ -8,6 +8,7 @@ Base.@kwdef struct Schematic
     values::Dict{String,Any} = Dict{String,Any}()   # raw element values/objects, by NAME
     xscale::Float64 = 1.0        # spread the layout horizontally / vertically; symbols and
     yscale::Float64 = 1.0        # text keep their size
+    border::Bool = true          # thick gray rounded frame around the whole figure
 end
 Schematic(items::AbstractVector; kw...) = Schematic(; items=collect(Placed, items), kw...)
 
@@ -523,6 +524,10 @@ function bbox(s::Schematic, devs, boxes)
     minimum(xs) - pad, minimum(ys) - pad, maximum(xs) - minimum(xs) + 2pad, maximum(ys) - minimum(ys) + 2pad
 end
 
+const BORDER_W = 3.0                   # border line width, corner radius (px) and colour
+const BORDER_R = 10.0
+const BORDER_COLOR = "#9a9a9a"
+
 function to_svg(s::Schematic)
     isempty(s.items) && return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"0\" height=\"0\"></svg>"
     devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
@@ -533,8 +538,15 @@ function to_svg(s::Schematic)
     print(io, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"$(f(x)) $(f(y)) $(f(w)) $(f(h))\" ",
               "width=\"$(f(w))\" height=\"$(f(h))\" font-family=\"$(s.font)\" font-size=\"15\" ",
               "style=\"color:$(s.stroke)\">")
+    # with a border, the background is rounded to match so no square corners show outside it
     s.background == "none" ||
-        print(io, "<rect x=\"$(f(x))\" y=\"$(f(y))\" width=\"$(f(w))\" height=\"$(f(h))\" fill=\"$(s.background)\"/>")
+        print(io, "<rect x=\"$(f(x))\" y=\"$(f(y))\" width=\"$(f(w))\" height=\"$(f(h))\" ",
+                  s.border ? "rx=\"$(f(BORDER_R + BORDER_W / 2))\" " : "", "fill=\"$(s.background)\"/>")
+    if s.border                       # inset by half its width so all of the line shows
+        print(io, "<rect x=\"$(f(x + BORDER_W / 2))\" y=\"$(f(y + BORDER_W / 2))\" ",
+                  "width=\"$(f(w - BORDER_W))\" height=\"$(f(h - BORDER_W))\" rx=\"$(f(BORDER_R))\" ",
+                  "fill=\"none\" stroke=\"$BORDER_COLOR\" stroke-width=\"$(f(BORDER_W))\"/>")
+    end
     print(io, "<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" ",
               "stroke-linecap=\"round\" stroke-linejoin=\"round\">")
     for it in s.items

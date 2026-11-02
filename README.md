@@ -433,9 +433,12 @@ Labels accept a small subset of LaTeX: `$…$` is stripped, `_x` / `_{xy}` becom
 subscripts (`\_` is a literal underscore), `\mathrm{…}`/`\text{…}` keep their text,
 and Greek letters plus `\infty \cdot \times \pm \approx \parallel \, \;` map to Unicode.
 
-`Schematic(items; scale=50, stroke="#222", background="white", font="serif", xscale=1, yscale=1)`
-sets pixels per unit, line colour, background (`"none"` for transparent), label font and
-the layout spread (see [Spacing](#spacing-xscale-and-yscale)).
+`Schematic(items; scale=50, stroke="#222", background="white", font="serif", xscale=1, yscale=1, border=true)`
+sets pixels per unit, line colour, background (`"none"` for transparent), label font,
+the layout spread (see [Spacing](#spacing-xscale-and-yscale)) and the border: a thick
+gray frame with rounded corners around the whole figure, so you can tell when a drawing
+runs past the edge of the notebook window. Turn it off with `border=false` (also a keyword
+of `ascii_schematic` and `tikz_schematic`, or `Schematic(s; border=false)` afterwards).
 `to_svg(s)` returns the SVG string if you want to save or embed it elsewhere.
 
 ## Tests
