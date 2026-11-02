@@ -36,8 +36,6 @@ xmlesc(s) = replace(s, "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&q
 
 px(s::Schematic, p::Pt) = Pt(s.scale * s.xscale * p.x, -s.scale * s.yscale * p.y)
 
-end
-
 """Minimal LaTeX → SVG text: strips `\$`, turns `_x`/`_{xy}` into subscripts (`\\_` is a
 literal underscore), maps a few macros. Returns (markup, number of visible characters). Subscripts use `dy` rather than
 `baseline-shift`, which Firefox ignores."""
