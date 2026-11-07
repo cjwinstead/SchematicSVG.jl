@@ -1,8 +1,9 @@
 # API reference
 
-## Drawing
+## Drawing functions
 
 ```@docs
+SchematicSVG
 ascii_schematic
 @schem_str
 tikz_schematic
@@ -12,7 +13,7 @@ to_svg
 layout
 ```
 
-## Placed primitives
+## Primitive types
 
 ```@docs
 Pt
@@ -32,7 +33,7 @@ Current
 Caption
 ```
 
-## Annotations
+## Annotation functions
 
 ```@docs
 annotate
@@ -41,7 +42,7 @@ SchematicSVG.instancename
 SchematicSVG.annotation
 ```
 
-## Netlists
+## Netlist functions
 
 ```@docs
 schematic_netlist
