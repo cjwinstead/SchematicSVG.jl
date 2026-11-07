@@ -728,6 +728,58 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test_logs (:warn, r"mirroring") tikz_schematic(raw"\begin{circuitikz}[xscale=-1] \draw (0,0) to[R] (2,0); \end{circuitikz}")
     end
 
+    @testset "layout" begin
+        lp = """
+          in--R1--+--out
+                  |
+                  C1
+                  |
+                 gnd
+        """
+        nodes(s) = Dict(d.name => d.nodes for d in schematic_netlist(s).devices)
+        # drawn connection: one wire, terminals in/out, clashing names numbered
+        L = layout(lp, lp; connect=[(1, "out") => (2, "in")])
+        @test nodes(L) == Dict("R1_1" => ["in", "out_1"], "C1_1" => ["out_1", "0"],
+                               "R1_2" => ["out_1", "out"], "C1_2" => ["out", "0"])
+        @test schematic_netlist(L).terminals == ["in", "out"]
+        @test count(x -> x isa Port, L.items) == 2
+        r1, r2 = (only(filter(x -> x isa Bipole && x.name == n, L.items)) for n in ("R1_1", "R1_2"))
+        @test r2.a.x > r1.b.x && r2.a.y == r1.a.y
+        @test any(x -> x isa NodeLabel && x.name == "out_1" && isempty(x.label), L.items)  # named, not shown
+        @test nodes(layout(lp, lp; connect=[(2, "in") => (1, "out")])) == nodes(L)   # either order
+        # no connection: every clashing name gets its part number, labels too
+        P = layout(lp, lp)
+        @test schematic_netlist(P).terminals == ["in_1", "out_1", "in_2", "out_2"]
+        @test occursin(">in<tspan", to_svg(P))
+        # shared by name: both terminals stay, with one name
+        S = layout(lp, lp; share=[(1, "out") => (2, "in")])
+        @test nodes(S) == nodes(L)
+        @test [p.label for p in filter(x -> x isa Port, S.items)] == ["in", "out_1", "out_1", "out"]
+        tagged = """
+          in--R1--@vb--R2--out
+        """
+        @test nodes(layout(tagged, tagged; share=["vb"]))["R1_2"] == ["in_2", "vb"]
+        # column: stacked top to bottom, left edges aligned
+        C = layout(lp, lp; direction=:column)
+        ys(k) = [x.a.y for x in C.items if x isa Bipole && endswith(x.name, "_$k")]
+        @test maximum(ys(2)) < minimum(ys(1))
+        @test only(filter(x -> x isa Port && x.name == "in_1", C.items)).at.x ==
+              only(filter(x -> x isa Port && x.name == "in_2", C.items)).at.x
+        # parts keep their values; settings come from the first part or the keywords
+        s1 = ascii_schematic(lp; elements=Dict("R1" => 1e3, "C1" => 1e-9), xscale=1.5)
+        s2 = ascii_schematic(lp; elements=Dict("R1" => 2e3, "C1" => 1e-9))
+        V = layout(s1, s2; connect=[(1, "out") => (2, "in")], border=false)
+        @test Dict(d.name => d.value for d in schematic_netlist(V).devices)["R1_2"] == 2e3
+        @test V.xscale == 1.5 && !V.border
+        @test nodes([s1 s2]) == nodes(layout(s1, s2)) && [s1; s2] isa Schematic
+        # nested layouts and errors
+        @test length(schematic_netlist(layout(L, lp)).devices) == 6
+        @test_throws ArgumentError layout(lp, lp, lp; connect=[(1, "out") => (3, "in")])
+        @test_throws ArgumentError layout(lp, lp; connect=[(1, "vo") => (2, "in")])
+        @test_throws ArgumentError layout(lp, lp; direction=:diagonal)
+        @test_throws ArgumentError layout(lp, lp; align=:left)
+    end
+
     @testset "quantities in SPICE text" begin
         rc = """
           in--R1--+--out

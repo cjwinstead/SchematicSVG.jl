@@ -17,12 +17,14 @@ export annotate, si
 export tikz_schematic, @tikz_str
 export schematic_netlist, spice_netlist, to_microelectronics, SchematicNetlist, NetDevice, parse_value
 export spice_subcircuit, to_subcircuit
+export layout
 
 include("primitives.jl")   # geometry and placed primitives
 include("svg.jl")          # Schematic container, show method, SVG renderer
 include("annotate.jl")     # element values/models and node annotations
 include("ascii.jl")        # ASCII-art front end
 include("tikz.jl")         # CircuiTikZ front end
+include("layout.jl")       # combining drawings into one figure
 include("netlist.jl")      # connectivity, SPICE text, Microelectronics.jl hook
 
 # Until `using Microelectronics` loads the extension, explain what's missing.

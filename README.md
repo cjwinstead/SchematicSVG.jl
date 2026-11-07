@@ -237,6 +237,41 @@ and BJT leads stop at the bars, and an op-amp keeps its inputs where they are an
 right so its input leads keep some length. Very small values (below about 0.5) can still
 crowd neighbouring parts.
 
+## Combining drawings: `layout`
+
+`layout(parts...)` places drawings side by side (`direction=:row`) or stacked
+(`direction=:column`) in one figure. Parts are ASCII drawings or `Schematic`s, such as
+stages already annotated with their own values, and the result is an ordinary
+`Schematic`, so it can be netlisted, made into a subcircuit or laid out again.
+`[s1 s2]` and `[s1; s2]` do the same for `Schematic`s.
+
+Parts join at their terminals in two ways, which can be mixed:
+
+```julia
+cs = ascii_schematic(CS_DRAWING; elements=cs_values)
+sf = ascii_schematic(SF_DRAWING; elements=sf_values)
+
+# drawn: SF is moved so its `in` lines up with CS's `out`, and a wire joins them
+two_stage = layout(cs, sf; connect=[(1, "out") => (2, "in")])
+to_subcircuit(two_stage; name="cs_sf")          # terminals in, out
+
+# by name: both terminals stay drawn, with one label (out₁); useful for a column
+layout(cs, sf; direction=:column, share=[(1, "out") => (2, "in")])
+```
+
+A drawn connection needs neighbouring parts, and each neighbouring pair can have one;
+`share` joins any parts, and `share=["vb"]` makes a node common to every part that has
+it. Supplies and ground are always common. Any other element or node name used in more
+than one part gets the part's number (`CC1` → `CC1_1`, `CC1_2`; `@g` → `g_1`, `g_2`), so
+separate parts stay separate, and terminal and node labels follow; element labels in the
+drawing are left as they are. The joined node keeps the first terminal's name, numbered
+if that name is used elsewhere (`out_1` above).
+
+`gap` (circuit units, default 1.5) sets the spacing, and `align` lines up parts that
+aren't joined by a drawn connection: `:top`, `:center` or `:bottom` in a row, `:left`,
+`:center` or `:right` in a column. Other keywords (`xscale`, `border`, …) are settings of
+the result, which otherwise come from the first part.
+
 ## Annotations: values, models and node voltages
 
 Pass your netlist elements and they are matched to the instance names in the drawing

@@ -206,6 +206,7 @@ end
 # Node names sit just off the wire; above/below they start a little to the right of the
 # point so a vertical wire through it doesn't strike through the text.
 function texts(s::Schematic, n::NodeLabel)
+    isempty(n.label) && return TextBox[]      # names a node without showing it
     off, anchor, base = n.side == :above ? (Pt(5, -6), "start", "auto") :
                         n.side == :below ? (Pt(5, 16), "start", "auto") : SIDE[n.side]
     [TextBox(px(s, n.at) + off, anchor, base, texlabel(n.label), :node)]
