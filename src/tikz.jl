@@ -595,7 +595,13 @@ function tikz_schematic(src::AbstractString; elements=(), nodes=Dict(), style::S
     isempty(elements) && isempty(nodes) ? sch : annotate(sch, elements; nodes, style)
 end
 
-"""`tikz\"\"\" … \"\"\"` — CircuiTikZ literal; displays as SVG in a notebook."""
+"""
+    tikz\"\"\" … \"\"\"
+
+CircuiTikZ literal: `tikz_schematic` of the code with default options, so a
+`\\begin{circuitikz} … \\end{circuitikz}` block can be pasted as is. Like a raw string,
+it does no interpolation or escape processing.
+"""
 macro tikz_str(s)
     :(tikz_schematic($s))
 end

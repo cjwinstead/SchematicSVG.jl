@@ -1,4 +1,23 @@
 # ──────────────────────────── container ─────────────────────────────
+"""
+    Schematic(items; scale=50, stroke="#222", background="white", font="serif",
+              xscale=1, yscale=1, border=true)
+
+A drawing: a list of placed primitives (`Bipole`, `Transistor`, `Wire`, …) and how to
+render it. It displays as inline SVG in a notebook; [`to_svg`](@ref) gives the SVG text.
+`ascii_schematic`, `tikz_schematic`, `annotate` and `layout` all return one.
+
+- `scale`: pixels per circuit unit (it also sizes transistors and op-amps).
+- `stroke`, `background`, `font`: line colour, background colour (`"none"` for
+  transparent) and label font.
+- `xscale`, `yscale`: spread the layout horizontally or vertically (or tighten it, below
+  1) while symbols and text keep their size.
+- `border`: a thick gray frame with rounded corners around the figure, so a drawing that
+  runs past the edge of a notebook window is easy to spot.
+
+`values` holds the element values the drawing was annotated with, by instance name; the
+netlisters use them.
+"""
 Base.@kwdef struct Schematic
     items::Vector{Placed} = Placed[]
     scale::Float64 = 50.0        # px per circuit unit
@@ -527,6 +546,12 @@ const BORDER_W = 3.0                   # border line width, corner radius (px) a
 const BORDER_R = 10.0
 const BORDER_COLOR = "#9a9a9a"
 
+"""
+    to_svg(s::Schematic) -> String
+
+The schematic as a standalone SVG document, for saving to a file or embedding in a web
+page or a document. Notebooks don't need it: a `Schematic` displays itself as SVG.
+"""
 function to_svg(s::Schematic)
     isempty(s.items) && return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"0\" height=\"0\"></svg>"
     devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})

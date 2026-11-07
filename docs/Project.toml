@@ -1,0 +1,9 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+SchematicSVG = "fe0f8afc-60ab-40bb-850f-aaaf3f1447e3"
+
+[compat]
+Documenter = "1"
+
+[sources]
+SchematicSVG = {path = ".."}

@@ -445,7 +445,13 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
     isempty(elements) && isempty(nodes) ? s : annotate(s, elements; nodes, style)
 end
 
-"""`schem\"\"\" ... \"\"\"` — ASCII schematic literal; displays as SVG in a notebook."""
+"""
+    schem\"\"\" … \"\"\"
+
+ASCII schematic literal: `ascii_schematic` of the text with default options. Like a raw
+string, it does no interpolation, so `\$…\$` labels can be written directly. A notebook
+cell ending in one displays the drawing.
+"""
 macro schem_str(s)
     :(ascii_schematic($s))
 end

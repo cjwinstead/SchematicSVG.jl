@@ -1,4 +1,11 @@
 # ───────────────────────────── geometry ─────────────────────────────
+"""
+    Pt(x, y)
+
+A point in circuit units, with y pointing up (as in CircuiTikZ; the SVG output flips
+it). Points support `+`, `-` and scaling by a number, so `Pt(1, 2) + 0.5 * Pt(2, 0)`
+is `Pt(2, 2)`.
+"""
 struct Pt
     x::Float64
     y::Float64
@@ -79,27 +86,52 @@ end
 Opamp(name, at; label="", note="", w=0.5, h=0.2, inv_up=false) =
     Opamp(name, at, label, note, w, h, inv_up)
 
-"""Refers to a device pin by name, e.g. `PinRef("Q1", :C)`. Resolved at render time,
-so wiring never depends on how a particular backend sizes its symbols."""
+"""
+    PinRef(device, pin)
+
+A pin of a named transistor or op-amp, used as a `Wire` point: `PinRef("Q1", :C)`,
+`PinRef("M1", :G)`, `PinRef("A1", :out)`. It is resolved when the schematic is drawn or
+netlisted, so wires follow the device wherever it sits. Transistor pins are `:B/:G`,
+`:C/:D` and `:E/:S`; op-amp pins `:inp`, `:inn` and `:out`.
+"""
 struct PinRef
     device::String
     pin::Symbol
 end
 const WirePt = Union{Pt,PinRef}
 
+"""
+    Wire(points...)
+
+A polyline through `points`, each a `Pt` or a `PinRef`. Wire ends and corners that
+meet other wires, pins or symbols connect to them, as does a point lying on another
+wire (a T-junction); wires that only cross stay separate. Junction dots are not added
+automatically for placed drawings: add a `Dot`.
+"""
 struct Wire <: Placed
     pts::Vector{WirePt}
 end
 Wire(pts::WirePt...) = Wire(collect(WirePt, pts))
 
-"""Ground symbol hanging below `at` (or pointing up when `flip`)."""
+"""
+    Ground(at, flip=false)
+
+Ground symbol hanging below `at` (pointing up when `flip`). Every ground is node `0` in
+netlists.
+"""
 struct Ground <: Placed
     at::Pt
     flip::Bool
 end
 Ground(at) = Ground(at, false)
 
-"""Supply rail bar at `at`, label above (`up`, e.g. V_DD) or below (e.g. V_SS)."""
+"""
+    Supply(at, label, up)
+
+Supply rail: a bar at `at` with `label` above it (`up=true`, e.g. `"V_{DD}"`) or below
+it (`up=false`, e.g. `"V_{SS}"`). The label names the supply node in netlists (`V_{DD}`
+→ `vdd`), and supplies with the same name are one node.
+"""
 struct Supply <: Placed
     at::Pt
     label::String
@@ -134,6 +166,11 @@ struct NodeLabel <: Placed
 end
 NodeLabel(at, name, side; label=name) = NodeLabel(at, name, label, side)
 
+"""
+    Dot(at)
+
+Junction dot at `at`. Purely visual: points connect whether or not a dot is drawn.
+"""
 struct Dot <: Placed
     at::Pt
 end
@@ -196,6 +233,12 @@ struct Caption <: Placed
 end
 Caption(at, text; align=:center) = Caption(at, text, align)
 
+"""
+    pin(device, p) -> Pt
+
+Position of pin `p` of a `Transistor` (`:B`/`:G` control, `:C`/`:D` top, `:E`/`:S`
+bottom, after any flips) or an op-amp (`:inp`, `:inn`, `:out`), in circuit units.
+"""
 function pin(t::Transistor, p::Symbol)
     sx = t.xflip ? -1 : 1
     sy = t.yflip ? -1 : 1
