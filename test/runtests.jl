@@ -27,7 +27,7 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test pin(m, :S) == Pt(1, 1.5)       # source on top when flipped
         @test_throws ErrorException pin(m, :X)
 
-        o = Opamp("OA1", Pt(0, 0))
+        o = SchematicSVG.Opamp("OA1", Pt(0, 0))
         @test pin(o, :inp) == Pt(-0.5, 0.2)
         @test pin(o, :out) == Pt(0.5, 0)
     end
@@ -105,7 +105,7 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
           vin--R1---+---R2----+
         """
         @test s isa Schematic
-        @test count_of(Opamp, s) == 1
+        @test count_of(SchematicSVG.Opamp, s) == 1
         @test count_of(Bipole, s) == 2
         @test count_of(Port, s) == 2
         @test count_of(Ground, s) == 1
@@ -265,7 +265,7 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test any(x -> x isa Wire && near(x.pts[end], pin(m, :G) + Pt(-1, 0)), s.items)
         @test any(x -> x isa NodeLabel && x.label == raw"$v_g$" && x.side == :left, s.items)
 
-        o = only(filter(x -> x isa Opamp, s.items))
+        o = only(filter(x -> x isa SchematicSVG.Opamp, s.items))
         @test o.inv_up && near(pin(o, :inn), Pt(8 - 1.19, 0.49)) && near(pin(o, :out), Pt(9.19, 0))
         @test occursin("<svg", to_svg(s))
 
