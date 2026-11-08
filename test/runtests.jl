@@ -781,6 +781,10 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
     end
 
     @testset "quantities in SPICE text" begin
+        # shortest text for plain numbers, on every Julia version
+        sv = SchematicSVG.spicevalue
+        @test sv(1e-12) == "1.0e-12" && sv(2.2e-6) == "2.2e-6" && sv(4700.0) == "4700"
+        @test sv(0.1 + 0.2) == "0.3" && sv(1e-5) == "1.0e-5" && sv(-3.3e-9) == "-3.3e-9"
         rc = """
           in--R1--+--out
                   |

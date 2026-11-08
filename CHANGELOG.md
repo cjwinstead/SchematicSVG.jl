@@ -50,3 +50,6 @@ Changes since v0.7.2.
 - SPICE text no longer contains Unitful's unit strings (such as `4.7 kΩ`), which SPICE
   can't read: quantities are written as plain numbers, by Microelectronics' `qstr` when
   it is loaded and otherwise by a small Unitful extension.
+- On Julia 1.13, some values gained rounding noise in SPICE text (`1e-12` became
+  `1.0000000000000002e-12`); numbers are now written in their shortest form.
+- Tests that used the unexported `Opamp` now use `SchematicSVG.Opamp`.

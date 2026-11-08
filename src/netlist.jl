@@ -440,9 +440,14 @@ spicename(name::AbstractString, letter::Char) =
 # ─────────────── SPICE text ───────────────
 
 spicevalue(x::Integer) = string(x)
+# Shortest text for a number: rounding to 12 digits tidies 0.1 + 0.2 to 0.3, but on some
+# Julia versions it nudges an exact value (1e-12 → 1.0000000000000002e-12), so the
+# rounded form is only used when it is shorter.
 function spicevalue(x::AbstractFloat)
     y = round(x; sigdigits=12)
-    isinteger(y) && abs(y) < 1e15 ? string(Int(y)) : string(y)
+    isinteger(y) && abs(y) < 1e15 && return string(Int(y))
+    a, b = string(x), string(y)
+    length(b) < length(a) ? b : a
 end
 spicevalue(x::Symbol) = "{$x}"
 spicevalue(x::AbstractString) = String(x)
