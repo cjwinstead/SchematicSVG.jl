@@ -712,6 +712,11 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         r(svg) = match(r"<polyline points=\"-20,0[^\"]*\"", svg).match
         rc = ascii_schematic("  a--R1--b")
         @test r(to_svg(rc)) == r(to_svg(Schematic(rc; xscale=1.7, yscale=0.6)))
+        # ends closer than the symbol is long: it shrinks and keeps a short lead each side
+        # (3 cells × 25 px × 0.3 = 22.5 px apart; the resistor is 40 px long)
+        tight = to_svg(Schematic(rc; xscale=0.3))
+        @test occursin("scale(0.36)", tight) && occursin("<line x1=\"0\" y1=\"0\" x2=\"4.0\"", tight)
+        @test !occursin(r"translate\([^)]*\) scale", to_svg(rc))      # normal spacing: full size
         @test ascii_schematic(art; yscale=1.5).yscale == 1.5
         @test_throws ArgumentError Schematic(s; xscal=2)
         # border: on by default, inset by half its width, background rounded to match

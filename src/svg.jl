@@ -165,7 +165,7 @@ function texts(s::Schematic, b::Bipole)
     d = B - A
     u = (1 / hypot(d.x, d.y)) * d
     n = Pt(u.y, -u.x)                   # left of the a→b direction, as seen on the page
-    _, hh, _ = body(b.kind)
+    hh = body(b.kind)[2] * symscale(b.kind, hypot(d.x, d.y))
     mid = 0.5 * (A + B)
     if b.side in (:left, :right)        # CircuiTikZ placement: label one side, note the other
         b.side == :right && (n = -1 * n)
@@ -274,25 +274,39 @@ const ARROW = "<path d=\"M-8,0 h14\"/><polygon points=\"9,0 3,-4 3,4\" fill=\"cu
 # and half-size per symbol (the diamond needs more clearance from its slanted sides).
 const SIGNS = Dict(:V => (9.0, 3.5), :cV => (6.5, 3.0))
 
+# A two-terminal symbol has a fixed size in pixels, but its ends move closer when a
+# drawing is squeezed (small `scale`, `xscale` or `yscale`). When they are closer than the
+# symbol is long, the symbol shrinks (to no less than a quarter of its size) so that it
+# keeps a lead of MINLEAD px at each end instead of running over the wires.
+const MINLEAD = 4.0
+function symscale(kind::Symbol, L::Real)
+    hw = body(kind)[1]
+    hw == 0 ? 1.0 : clamp((L / 2 - MINLEAD) / hw, 0.25, 1.0)
+end
+
 function render(io, s::Schematic, b::Bipole, ctx)
     A, B = drawn(s, ctx, b.a), drawn(s, ctx, b.b)
     d = B - A
     L = hypot(d.x, d.y)
     θ = atan(d.y, d.x) * 180 / π
     hw, _, svg = body(b.kind)
+    k = symscale(b.kind, L)
     m = L / 2
     if b.kind != :open
+        sym = k == 1 ? "translate($(f(m)),0)\"" :
+              "translate($(f(m)),0) scale($(f(k)))\" stroke-width=\"$(f(1.5 / k))\""
         print(io, "<g transform=\"translate($(f(A.x)),$(f(A.y))) rotate($(f(θ)))\">",
-                  "<line x1=\"0\" y1=\"0\" x2=\"$(f(m - hw))\" y2=\"0\"/>",
-                  "<line x1=\"$(f(m + hw))\" y1=\"0\" x2=\"$(f(L))\" y2=\"0\"/>",
-                  "<g transform=\"translate($(f(m)),0)\">", svg, "</g></g>")
+                  "<line x1=\"0\" y1=\"0\" x2=\"$(f(m - k * hw))\" y2=\"0\"/>",
+                  "<line x1=\"$(f(m + k * hw))\" y1=\"0\" x2=\"$(f(L))\" y2=\"0\"/>",
+                  "<g transform=\"", sym, ">", svg, "</g></g>")
     end
     if b.kind == :sV                    # upright sine wave, whatever the direction
         c = 0.5 * (A + B)
-        print(io, "<path d=\"M$(f(c.x - 9)),$(f(c.y)) q4.5,-9 9,0 t9,0\"/>")
+        w = 9k
+        print(io, "<path d=\"M$(f(c.x - w)),$(f(c.y)) q$(f(w / 2)),$(f(-w)) $(f(w)),0 t$(f(w)),0\"/>")
     end
     if haskey(SIGNS, b.kind)
-        off, h = SIGNS[b.kind]
+        off, h = k .* SIGNS[b.kind]
         u = (1 / L) * d
         p = A + (m - off) * u              # '+' near a (the n+ terminal)
         q = A + (m + off) * u
@@ -323,7 +337,7 @@ function signspots(s::Schematic, v::Voltage)
         e = min(14.0, 0.25L)
         return A + e * u, B - e * u
     end
-    hw, hh, _ = body(v.kind)
+    hw, hh = symscale(v.kind, L) .* body(v.kind)[1:2]
     mid = 0.5 * (A + B)
     mid - (hw + 8) * u + (hh + 7) * n, mid + (hw + 8) * u + (hh + 7) * n
 end
@@ -345,7 +359,7 @@ function texts(s::Schematic, v::Voltage)
         abs(u.y) < 0.5 && return [TextBox(mid, "middle", "middle", mt, :label)]
         return [beside(mid, n, 6, mt, :label)]
     end
-    _, hh, _ = body(v.kind)
+    hh = body(v.kind)[2] * symscale(v.kind, L)
     [beside(mid, n, hh + 7, mt, :label)]
 end
 
@@ -360,7 +374,7 @@ function currentframe(s::Schematic, c::Current)
     left = Pt(u.y, -u.x)                 # left of a → b, as seen on the page
     n = c.side == :left ? left : c.side == :right ? -1 * left :
         (left.y > 1e-6 || (abs(left.y) < 1e-6 && left.x < 0)) ? -1 * left : left   # :auto
-    hw = c.kind in (:short, :open) ? 0.0 : Float64(body(c.kind)[1])
+    hw = c.kind in (:short, :open) ? 0.0 : body(c.kind)[1] * symscale(c.kind, L)
     t = hw == 0 ? c.pos * L :                        # on a wire: where asked
         c.pos >= 0.5 ? (3L + 2hw) / 4 : (L - 2hw) / 4  # mid-lead after / before the symbol
     A + t * u, c.into ? -1 * u : u, n

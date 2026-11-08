@@ -34,7 +34,9 @@ different: it sets the pixels per unit, so it also resizes transistors and op-am
 When a drawing is pulled in, a symbol's leads get shorter but never run into the symbol:
 a PMOS gate wire stops outside the bubble, MOSFET and BJT leads stop at the bars, and an
 op-amp keeps its inputs where they are and slides right so its input leads keep some
-length. Very small values (below about 0.5) can still crowd neighbouring parts.
+length. Resistors, capacitors, sources and other two-terminal symbols shrink when their
+ends are closer than the symbol is long, keeping a short lead at each end. Very small
+values (below about 0.5) can still crowd neighbouring parts and labels.
 
 ## Border
 

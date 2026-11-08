@@ -40,7 +40,9 @@ Changes since v0.7.2.
 
 - When `xscale`/`yscale` squeeze a drawing, transistor and op-amp leads shorten without
   running into the symbol: a PMOS gate wire stops outside the bubble, and an op-amp keeps
-  its inputs in place and slides right.
+  its inputs in place and slides right. Two-terminal symbols (resistors, capacitors,
+  sources, …) whose ends are closer than the symbol is long, because of a small `scale`,
+  `xscale` or `yscale`, shrink to fit with a short lead at each end.
 - The examples notebook's amplifier subcircuits use inferred terminals (except the
   differential pair, which keeps its explicit order), and it adds a two-stage CS + SF
   amplifier built with `layout`.
