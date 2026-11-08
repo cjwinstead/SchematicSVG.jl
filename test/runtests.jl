@@ -526,7 +526,8 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
                     |      |
            s--------+------+------s
         """)
-        @test schematic_netlist(hp).terminals == ["g", "s", "d"]
+        @test schematic_netlist(hp; elements=Dict("G1" => (1e-3, ("g", "s")), "RO" => 1e5)).terminals ==
+              ["g", "s", "d"]
         # node tags are not terminals
         t = ascii_schematic("""
            a--R1--+--@m--R2--b
