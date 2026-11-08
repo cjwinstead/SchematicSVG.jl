@@ -55,3 +55,6 @@ Changes since v0.7.2.
 - On Julia 1.13, some values gained rounding noise in SPICE text (`1e-12` became
   `1.0000000000000002e-12`); numbers are now written in their shortest form.
 - Tests that used the unexported `Opamp` now use `SchematicSVG.Opamp`.
+- Loading the Microelectronics extension could fail with
+  ``UndefVarError: `SchematicSVGMicroelectronicsExt` not defined in `Main` ``, depending
+  on how it was loaded; the extension modules no longer carry docstrings.

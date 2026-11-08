@@ -1,7 +1,6 @@
-"""
-Loaded automatically when both SchematicSVG and Microelectronics are in use: turns a
-drawn schematic into Microelectronics.jl element objects.
-"""
+# Loaded automatically when both SchematicSVG and Microelectronics are in use: turns a
+# drawn schematic into Microelectronics.jl element objects.
+# (A comment, not a docstring: a docstring on an extension module can fail to load.)
 module SchematicSVGMicroelectronicsExt
 
 using SchematicSVG
