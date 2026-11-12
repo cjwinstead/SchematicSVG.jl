@@ -823,6 +823,13 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
                                                                 elements=lv).devices)
         @test visible(layout(div, div; nodelabels=true)) == ["n1", "n2", "n3", "n4"]
         @test visible(label_nodes(layout(div, div))) == ["n1", "n2", "n3", "n4"]
+        # chained joins: a name taken over by another join doesn't count as in use, so the
+        # joined nodes keep their plain names (b, c), not b_1
+        L3 = layout("a-R1-b", "b-R1-c", "b-R3-d"; connect=[(1, "b") => (2, "b"), (2, "c") => (3, "b")],
+                    nodelabels=true)
+        @test Dict(d.name => d.nodes for d in schematic_netlist(L3; elements=Dict("R1_1" => 1, "R1_2" => 1, "R3" => 1)).devices) ==
+              Dict("R1_1" => ["a", "b"], "R1_2" => ["b", "c"], "R3" => ["c", "d"])
+        @test visible(L3) == ["b", "c"]
     end
 
     @testset "sinusoidal sources" begin

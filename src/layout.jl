@@ -70,21 +70,31 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
     hasport(k, n) = any(it -> it isa Port && lowercase(it.name) == lowercase(n), ss[k].items)
 
     # 1. Shared and joined nodes: renames per part, and names that are common on purpose.
+    # Terminals tied together by `connect` and `share` (possibly in chains) form groups,
+    # each one node. A group keeps its first terminal's name unless a node outside every
+    # group, or an earlier group, already uses it; then it gets that terminal's part number.
     nren = [Dict{String,String}() for _ in 1:np]
     common = Set{String}()
-    # one node from terminal `a` of part i and `b` of part j: it keeps a's name, with i's
-    # suffix when that name is used elsewhere
-    function join!(i, a, j, b)
-        a, b = String(a), String(b)
-        elsewhere = any(m -> lowercase(a) in nodenames[m] && !(m == i) &&
-                             !(m == j && lowercase(a) == lowercase(b)), 1:np)
-        joined = elsewhere ? "$(a)_$i" : a
-        nren[i][lowercase(a)] = joined
-        nren[j][lowercase(b)] = joined
-        push!(common, lowercase(joined))
-        joined
+    parent = Dict{Tuple{Int,String},Tuple{Int,String}}()
+    spelled = Dict{Tuple{Int,String},String}()             # (part, lowercase) => as written
+    order = Tuple{Int,String}[]                            # terminals in order of mention
+    function root(x)
+        while parent[x] != x
+            x = parent[x]
+        end
+        x
     end
-    joins = Dict{Int,Tuple{String,String,String}}()          # k => (name in k, name in k+1, joined)
+    function tie!(i, a, j, b)
+        for (k, n) in ((i, a), (j, b))
+            key = (k, lowercase(String(n)))
+            if !haskey(parent, key)
+                parent[key] = key; spelled[key] = String(n); push!(order, key)
+            end
+        end
+        ra, rb = root((i, lowercase(String(a)))), root((j, lowercase(String(b))))
+        ra == rb || (parent[rb] = ra)
+    end
+    joins = Dict{Int,Tuple{String,String}}()               # k => (name in k, name in k+1)
     for c in connect
         (i, a), (j, b) = first(c), last(c)
         checkpart(i); checkpart(j)
@@ -98,7 +108,8 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
         for (k, n) in ((i, a), (j, b))
             hasport(k, n) || throw(ArgumentError("connect: part $k has no terminal '$n'"))
         end
-        joins[i] = (String(a), String(b), join!(i, a, j, b))
+        joins[i] = (String(a), String(b))
+        tie!(i, a, j, b)
     end
     for c in share
         if c isa Pair
@@ -108,11 +119,26 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
             for (k, n) in ((i, a), (j, b))
                 lowercase(n) in nodenames[k] || throw(ArgumentError("share: part $k has no node '$n'"))
             end
-            join!(i, a, j, b)
+            tie!(i, a, j, b)
         else
             push!(common, lowercase(string(c)))
         end
     end
+    loose = Set(n for k in 1:np for n in nodenames[k] if !haskey(parent, (k, n)))   # not in a group
+    groupname = Dict{Tuple{Int,String},String}()
+    for x in order                                       # name each group from its first terminal
+        r = root(x)
+        haskey(groupname, r) && continue
+        k = x[1]
+        want = spelled[x]
+        name = lowercase(want) in loose || lowercase(want) in common ? "$(want)_$k" : want
+        groupname[r] = name
+        push!(common, lowercase(name))
+    end
+    for x in order
+        nren[x[1]][x[2]] = groupname[root(x)]
+    end
+    joinedname(k) = nren[k][lowercase(joins[k][1])]
 
     # 2. Names used by more than one part get the part number, unless common.
     renamed(k, n) = get(nren[k], lowercase(n), n)
@@ -162,7 +188,8 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
                         b0 + d0.y - MINBAND - t)
         end
         if haskey(joins, k - 1)
-            a, bname, joined = joins[k-1]
+            a, bname = joins[k-1]
+            joined = joinedname(k - 1)
             pa, pb = facing(k - 1, a, true), facing(k, bname, false)
             across = row ? pa.at.y + d0.y - pb.at.y : pa.at.x + d0.x - pb.at.x
             push!(removed[k-1], pa); push!(removed[k], pb)

@@ -21,6 +21,8 @@ Changes since v0.7.2.
 - **Current arrows**: ASCII `~i1>`, `<~i1`, `~i1^`, `~i1v` inside a wire; CircuiTikZ `i=`
   and its variants (`i_=`, `i<=`, `i>_=`, …) placed as CircuiTikZ places them; the
   `Current` primitive.
+- `layout` names joined nodes after working out every join, so chained joins keep plain
+  names (joining `b`–`b` and then `c`–`b` gives nodes `b` and `c`, not `b_1`).
 - **Supply rails and compacting in `layout`**: in a row, the parts' V_DD (and other top
   supplies) line up at the top of the figure and V_SS at the bottom, by lengthening the
   vertical wires that lead to them. In a column, each stage's supplies line up on its own
