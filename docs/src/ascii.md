@@ -35,6 +35,7 @@ circuit units, and other keywords are [`Schematic`](@ref) settings (`xscale`, `b
 | `R1` `C1` `L1` | resistor, capacitor, inductor |
 | `D1>` `<D1` `D1^` `D1v` | diode; the marker gives the cathode side (default right/down) |
 | `V1` `I1` | voltage / current source; marker points to `+` (V, default left/top) or along the arrow (I, default right/down) |
+| `SVsig` `SIb` | sinusoidal voltage / current source, named `Vsig` / `Ib` (the `S` is dropped); same markers as V / I |
 | `E1` `H1` / `G1` `F1` | dependent voltage / current sources (diamonds), same markers as V / I |
 | `-\|N1` | NMOS, gate on the left, drain on top (`N1\|-` puts the gate on the right) |
 | `-\|P1` | PMOS, source on top |

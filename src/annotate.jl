@@ -80,8 +80,15 @@ function valuetext(v::NamedTuple, name)
     for k in (:value, :gain, :model)
         haskey(v, k) && return valuetext(v[k], name)
     end
-    haskey(v, :amplitude) && return si(v.amplitude, "V") *
-                                    (haskey(v, :frequency) ? ", " * si(v.frequency, "Hz") : "")
+    if haskey(v, :amplitude)                      # a sinusoid: amplitude, frequency, offset
+        # numbers get the source's unit (V or A, from the name's letter) and Hz;
+        # quantities show their own units
+        parts = [valuetext(v.amplitude, name)]
+        haskey(v, :frequency) &&
+            push!(parts, v.frequency isa Real ? si(v.frequency, "Hz") : valuetext(v.frequency, name))
+        haskey(v, :offset) && !iszero(v.offset) && push!(parts, "offset " * valuetext(v.offset, name))
+        return join(parts, ", ")
+    end
     ""
 end
 

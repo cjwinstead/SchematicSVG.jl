@@ -33,8 +33,8 @@
 const KINDS = Dict('R' => :R, 'C' => :C, 'L' => :L, 'D' => :D, 'V' => :V, 'I' => :I,
                    'E' => :cV, 'H' => :cV, 'G' => :cI, 'F' => :cI,
                    'N' => :nmos, 'P' => :pmos, 'Q' => :npn, 'O' => :open)
-const BIPOLES = (:R, :C, :L, :D, :V, :I, :cV, :cI, :open)
-const POLAR = (:D, :V, :I, :cV, :cI, :open)
+const BIPOLES = (:R, :C, :L, :D, :V, :I, :sV, :sI, :cV, :cI, :open)
+const POLAR = (:D, :V, :I, :sV, :sI, :cV, :cI, :open)
 const SWITCHES = (:nmos, :pmos, :npn)
 const WIRECH = ('-', '|', '+', '*', ')')
 
@@ -46,6 +46,8 @@ function kindof(n::AbstractString)
         return :port
     end
     startswith(n, "OA") && return :opamp
+    # sinusoidal sources: "SVsig" is the voltage source Vsig, "SIb" the current source Ib
+    length(n) >= 2 && n[1] == 'S' && n[2] in ('V', 'I') && return n[2] == 'V' ? :sV : :sI
     get(KINDS, n[1], :port)
 end
 
@@ -131,6 +133,9 @@ function tokenize(g)
                 elseif ch(c0 - 1) == '<'
                     dir = :left; s0 -= 1
                 end
+            end
+            if kind in (:sV, :sI)
+                name = name[2:end]                 # "SVsig" is the source Vsig
             elseif kind in SWITCHES
                 if ch(c0 - 1) == '|'
                     gate = :left; s0 -= 1
@@ -326,15 +331,17 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
             end
             # Does the marker point at the right/bottom end? Defaults: diode cathode and
             # current arrow right/down, '+' left/top.
-            to2 = d == :none ? k in (:D, :I, :cI) : d in (:right, :down)
+            to2 = d == :none ? k in (:D, :I, :sI, :cI) : d in (:right, :down)
             toward, other = to2 ? (second_, first_) : (first_, second_)
-            a, b = k in (:V, :cV, :open) ? (toward, other) :
-                   k in (:D, :I, :cI) ? (other, toward) : (first_, second_)
+            a, b = k in (:V, :sV, :cV, :open) ? (toward, other) :
+                   k in (:D, :I, :sI, :cI) ? (other, toward) : (first_, second_)
             if k == :open                  # an open circuit: just the voltage across it
                 push!(items, Bipole(:open, a, b, ""; name=t.name))
                 push!(items, Voltage(a, b, get(labels, t.name, openlabel(t.name)); side=:auto))
             else
-                push!(items, Bipole(k, a, b, lbl(t); name=t.name))
+                # both sinusoidal sources are drawn as CircuiTikZ's sV; the netlist tells
+                # them apart by the name's letter (Vsig, Isig)
+                push!(items, Bipole(k == :sI ? :sV : k, a, b, lbl(t); name=t.name))
             end
 
         elseif k in SWITCHES

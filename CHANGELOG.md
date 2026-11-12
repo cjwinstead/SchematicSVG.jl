@@ -21,6 +21,10 @@ Changes since v0.7.2.
 - **Current arrows**: ASCII `~i1>`, `<~i1`, `~i1^`, `~i1v` inside a wire; CircuiTikZ `i=`
   and its variants (`i_=`, `i<=`, `i>_=`, …) placed as CircuiTikZ places them; the
   `Current` primitive.
+- **Sinusoidal sources in ASCII drawings**: `SVsig` is a sinusoidal voltage source named
+  `Vsig` and `SIb` a sinusoidal current source named `Ib`, with the same direction markers
+  as `V` and `I`. Give them `(amplitude=…, frequency=…, offset=…)` or SPICE text such as
+  `"SIN(0 10m 1k)"`; the annotation shows "10 mV, 1 kHz".
 - **Captions**: ASCII `"text"`, `<"text"` and `"text">`; the `Caption` primitive.
 - **`xscale` / `yscale`** spread or tighten a drawing without resizing symbols or text,
   as keywords of `ascii_schematic`, `tikz_schematic` and `Schematic`, and from a

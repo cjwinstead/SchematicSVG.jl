@@ -656,6 +656,37 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test length(collect(eachmatch(r"<polygon", to_svg(p)))) == 3
     end
 
+    @testset "sinusoidal sources" begin
+        art = """
+           +--@in--RS--+--out
+           |           |
+           SVsig       RL
+           |           |
+          gnd         gnd
+        """
+        s = ascii_schematic(art; elements=Dict("Vsig" => (amplitude=10e-3, frequency=1e3),
+                                               "RS" => 50, "RL" => 1e3))
+        v = only(filter(x -> x isa Bipole && x.kind == :sV, s.items))
+        @test v.name == "Vsig" && v.label == "V_{sig}" && v.note == "10 mV, 1 kHz"
+        @test v.a.y > v.b.y                                   # '+' (SPICE n+) at the top
+        n = schematic_netlist(s)
+        d = only(filter(d -> d.name == "Vsig", n.devices))
+        @test d.kind == :sV && d.nodes == ["in", "0"]
+        @test occursin("Vsig in 0 SIN(0 0.01 1000)\n", sprint(print, n))
+        # SPICE text, direction markers, current sources
+        flipped = ascii_schematic(replace(art, "SVsig " => "SV1v  "); elements=Dict("V1" => "SIN(1 0.1 60)"))
+        @test occursin("V1 0 in SIN(1 0.1 60)\n", sprint(print, schematic_netlist(flipped)))   # '+' at the bottom
+        cur = ascii_schematic(replace(art, "SVsig" => "SIb  ");
+                              elements=Dict("Ib" => (amplitude=2e-3, frequency=50, offset=1e-3)))
+        i = only(filter(x -> x isa Bipole && x.kind == :sV, cur.items))
+        @test i.name == "Ib" && i.note == "2 mA, 50 Hz, offset 1 mA"
+        di = only(filter(d -> d.name == "Ib", schematic_netlist(cur).devices))
+        @test di.kind == :sI && di.nodes == ["in", "0"]
+        h = ascii_schematic("  a--SVx>--b")
+        hv = only(filter(x -> x isa Bipole, h.items))
+        @test hv.kind == :sV && hv.name == "Vx" && hv.a.x > hv.b.x   # '+' on the right
+    end
+
     @testset "captions" begin
         art = """
            in--R1--+--out
