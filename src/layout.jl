@@ -1,7 +1,8 @@
 # ───────────────────── combining drawings into one figure ─────────────────────
 
 """
-    layout(parts...; direction=:row, gap=1.5, align=nothing, connect=[], share=[], kw...) -> Schematic
+    layout(parts...; direction=:row, gap=1.5, align=nothing, connect=[], share=[],
+           nodelabels=false, kw...) -> Schematic
 
 Place drawings side by side (`direction=:row`, left to right) or stacked
 (`direction=:column`, top to bottom) in one figure, `gap` circuit units apart. A part is
@@ -25,6 +26,10 @@ connection keeps the first terminal's name (with the part suffix if that name is
 elsewhere), and so does a shared pair. Drawn labels of elements are unchanged; terminal
 and node labels that show their node name follow the renaming.
 
+`nodelabels=true` labels the nodes of the combined circuit with their netlist names, as
+[`label_nodes`](@ref) does (`:all` also labels ground and supplies). Label the result
+rather than the parts: a part's labels become node names, numbered like any other name.
+
 `align` sets how parts not joined by a drawn connection line up: `:top` (the default for
 a row), `:center` or `:bottom`; for a column `:left` (the default), `:center` or `:right`.
 Other keywords are settings of the result (`xscale`, `border`, …), which otherwise come
@@ -33,7 +38,7 @@ from the first part.
 `[s1 s2]` and `[s1; s2]` lay out `Schematic`s in a row or a column with the defaults.
 """
 function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
-                connect=(), share=(), kw...)
+                connect=(), share=(), nodelabels=false, kw...)
     direction in (:row, :column) ||
         throw(ArgumentError("direction must be :row or :column, got $(repr(direction))"))
     isempty(parts) && throw(ArgumentError("layout needs at least one part"))
@@ -167,7 +172,7 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
         end
     end
     append!(items, extra)
-    Schematic(ss[1]; items, values, kw...)
+    withnodelabels(Schematic(ss[1]; items, values, kw...), nodelabels)
 end
 
 # A copy of `it` moved by `d`, with element names renamed by `ename` (also in PinRefs) and

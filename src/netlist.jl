@@ -461,7 +461,8 @@ A copy of `s` with every node labelled by its netlist name, so the drawing can b
 side by side with `spice_netlist(s)` or `schematic_netlist(s)`.
 
 By default only the nodes that don't already show a name get a label: the ones the
-netlist calls `n1`, `n2`, …. Terminals and `@` node tags already show their names.
+netlist calls `n1`, `n2`, …, and the joined nodes of a [`layout`](@ref). Terminals and
+`@` node tags already show their names.
 `nodes=:all` also labels ground (`0`) and supply nodes (`vdd`, …) with their netlist
 names. `rename` is the same mapping as for `schematic_netlist`, so the labels match a
 netlist written with it.
@@ -475,7 +476,9 @@ function label_nodes(s::Schematic; nodes::Symbol=:unnamed, rename=Dict())
     nodes in (:unnamed, :all) ||
         throw(ArgumentError("nodes must be :unnamed or :all, got $(repr(nodes))"))
     g = nodenames(s; rename)
-    shown = Set(g.root(it.at) for it in s.items if it isa Union{Port,NodeLabel} && !isempty(it.name))
+    # nodes whose name is already on the drawing (a terminal or tag with visible text; the
+    # joined node of a drawn `layout` connection is named but not shown)
+    shown = Set(g.root(it.at) for it in s.items if it isa Union{Port,NodeLabel} && !isempty(it.label))
     rep = Dict{Tuple{Int,Int},Pt}()                  # a point of each node
     for p in g.pts
         get!(rep, g.root(p), p)

@@ -697,6 +697,25 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
                             nodelabels=true)
         @test names(tk) == ["n1", "n2"]
         @test_throws ArgumentError label_nodes(s; nodes=:some)
+
+        # layouts: label the combined circuit, including the joined node of a drawn
+        # connection (named out_1 but not shown)
+        visible(s) = sort([x.label for x in s.items if x isa NodeLabel && !isempty(x.label)])
+        lp = """
+          in--R1--+--out
+                  |
+                  C1
+                  |
+                 gnd
+        """
+        two = layout(lp, lp; connect=[(1, "out") => (2, "in")], nodelabels=true)
+        @test visible(two) == ["out_1"]
+        lv = Dict("R1_1" => 1, "R1_2" => 1, "C1_1" => 1, "C1_2" => 1)
+        @test Dict(d.name => d.nodes for d in schematic_netlist(two; elements=lv).devices) ==
+              Dict(d.name => d.nodes for d in schematic_netlist(layout(lp, lp; connect=[(1, "out") => (2, "in")]);
+                                                                elements=lv).devices)
+        @test visible(layout(div, div; nodelabels=true)) == ["n1", "n2", "n3", "n4"]
+        @test visible(label_nodes(layout(div, div))) == ["n1", "n2", "n3", "n4"]
     end
 
     @testset "sinusoidal sources" begin

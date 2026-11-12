@@ -24,6 +24,7 @@ Changes since v0.7.2.
 - **Node labels**: `label_nodes(s)`, or `nodelabels=true` in `ascii_schematic` and
   `tikz_schematic`, labels every node that doesn't already show a name with its netlist
   name (`n1`, `n2`, …); `nodes=:all` / `nodelabels=:all` also labels ground and supplies.
+  `layout(…; nodelabels=true)` labels the combined circuit, including joined nodes.
 - **Sinusoidal sources in ASCII drawings**: `SVsig` is a sinusoidal voltage source named
   `Vsig` and `SIb` a sinusoidal current source named `Ib`, with the same direction markers
   as `V` and `I`. Give them `(amplitude=…, frequency=…, offset=…)` or SPICE text such as

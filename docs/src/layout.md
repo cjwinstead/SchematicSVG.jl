@@ -130,5 +130,9 @@ part that has it.
 - `gap` (circuit units, default 1.5) sets the spacing.
 - `align` lines up parts that aren't joined by a drawn connection: `:top` (default),
   `:center` or `:bottom` in a row; `:left` (default), `:center` or `:right` in a column.
+- `nodelabels=true` labels the combined circuit's nodes with their netlist names,
+  including the joined node of a drawn connection ([Node labels](@ref)); `:all` also
+  labels ground and supplies. Label the result rather than the parts: a part's labels
+  become node names and get numbered like any other name.
 - Other keywords (`xscale`, `border`, …) are settings of the result, which otherwise come
   from the first part.
