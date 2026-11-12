@@ -32,9 +32,12 @@ rather than the parts: a part's labels become node names, numbered like any othe
 
 In a row, every part's top supplies (V_DD, V_CC) line up at the top of the figure and its
 bottom supplies (V_SS, V_EE) at the bottom, by lengthening the vertical wires that lead to
-them (`rails=false` turns this off). Before placing the parts, long runs of vertical wire
-are shortened to one row (`compact=false` keeps them): only stretches where nothing but
-vertical wires cross, so components keep their spacing. Wires of a drawn connection stay
+them. In a column, each stage's top supplies line up on one line and its bottom supplies
+on another, and the stages stack `gap` apart from one stage's bottom supply line to the
+next stage's top line (`rails=false` turns all this off). Before placing the parts, long runs of vertical wire
+are shortened to one row, and the finished figure is squeezed the same way
+(`compact=false` keeps them): only stretches where nothing but vertical wires cross, so
+components keep their spacing and the rails stay lined up. Wires of a drawn connection stay
 straight; a supply that can't move without bending one stays where it is.
 
 `align` sets how parts not joined by a drawn connection line up: `:top` (the default for
@@ -55,6 +58,7 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
         throw(ArgumentError("align=$(repr(align)) doesn't apply to a $direction"))
     ss = Schematic[p isa Schematic ? p : ascii_schematic(String(p)) for p in parts]
     compact && (ss = Schematic[compacted(x) for x in ss])
+    rails && !row && (ss = Schematic[partrails(x) for x in ss])
     np = length(ss)
     checkpart(k) = 1 <= k <= np || throw(ArgumentError("there is no part $k (parts 1–$np)"))
 
@@ -149,6 +153,12 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
         (l0, r0, b0, t0), (l, r, b, t) = boxes[k-1], boxes[k]
         d0 = offs[k-1]
         along = row ? r0 + d0.x + gap - l : b0 + d0.y - gap - t
+        if !row && rails
+            # stacked stages: `gap` from one stage's V_SS line to the next one's V_DD line,
+            # and at least a row between anything else
+            along = min(railline(ss[k-1], false, b0) + d0.y - gap - railline(ss[k], true, t),
+                        b0 + d0.y - MINBAND - t)
+        end
         if haskey(joins, k - 1)
             a, bname, joined = joins[k-1]
             pa, pb = facing(k - 1, a, true), facing(k, bname, false)
@@ -171,9 +181,9 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
     # the figure and its bottom supplies (V_SS, …) down to the bottom, by stretching a
     # band of vertical wires; drawn connections stay where they are.
     fys = Any[identity for _ in 1:np]
+    ytop = maximum(boxes[k][4] + offs[k].y for k in 1:np)
+    ybot = minimum(boxes[k][3] + offs[k].y for k in 1:np)
     if rails && row && np > 1
-        ytop = maximum(boxes[k][4] + offs[k].y for k in 1:np)
-        ybot = minimum(boxes[k][3] + offs[k].y for k in 1:np)
         for k in 1:np
             tops = [it.at.y for it in ss[k].items if it isa Supply && it.up]
             bots = [it.at.y for it in ss[k].items if it isa Supply && !it.up]
@@ -196,7 +206,19 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
         end
     end
     append!(items, extra)
-    withnodelabels(Schematic(ss[1]; items, values, kw...), nodelabels)
+    if rails && row && np > 1
+        # supplies the bands couldn't move (blocked, or a second V_DD lower in its part)
+        items = liftsupplies(items, ytop, ybot)
+    end
+    sch = Schematic(ss[1]; items, values, kw...)
+    # 6. Squeeze the combined figure where nothing but vertical wires cross (this keeps
+    # the rails lined up); in a column the gaps between stages stay as set.
+    if compact
+        keep = row ? Tuple{Float64,Float64}[] :
+               [(boxes[k+1][4] + offs[k+1].y, boxes[k][3] + offs[k].y) for k in 1:np-1]
+        sch = compacted(sch; keep)
+    end
+    withnodelabels(sch, nodelabels)
 end
 
 # A copy of `it` moved by `d`, with element names renamed by `ename` (also in PinRefs) and
@@ -233,7 +255,7 @@ end
 const MINBAND = 0.8          # a compacted elastic band keeps one ASCII row (circuit units)
 const YTOL = 1e-6
 
-function bands(s::Schematic)
+function bands(s::Schematic; keep=())
     devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
     rp(p) = p isa PinRef ? pin(devs[p.device], p.pin) : p
     # Heights where something sits. A point where a vertical wire only passes through
@@ -260,7 +282,7 @@ function bands(s::Schematic)
         end
     end
     ys = [k[2] for (k, (above, below, other)) in through if !(above && below && !other)]
-    spans = Tuple{Float64,Float64}[]                 # heights nothing may stretch inside
+    spans = Tuple{Float64,Float64}[keep...]          # heights nothing may stretch inside
     for it in s.items
         if it isa Bipole && it.kind != :short
             push!(spans, minmax(it.a.y, it.b.y))
@@ -287,8 +309,8 @@ end
 
 # Height map that shrinks every elastic band taller than MINBAND to MINBAND, keeping the
 # lowest point where it is.
-function compactmap(s::Schematic)
-    ys, elastic = bands(s)
+function compactmap(s::Schematic; keep=())
+    ys, elastic = bands(s; keep)
     length(ys) < 2 && return identity
     any(k -> elastic[k] && ys[k+1] - ys[k] > MINBAND + YTOL, 1:length(ys)-1) || return identity
     ny = copy(ys)
@@ -304,8 +326,70 @@ function compactmap(s::Schematic)
     end
 end
 
-compacted(s::Schematic) =
-    (f = compactmap(s); Schematic(s; items=Placed[relocate(it, Pt(0, 0), identity, identity; fy=f) for it in s.items]))
+compacted(s::Schematic; keep=()) =
+    (f = compactmap(s; keep); Schematic(s; items=Placed[relocate(it, Pt(0, 0), identity, identity; fy=f) for it in s.items]))
+
+# Moves supply symbols to height `top` (top supplies such as V_DD) or `bot` (bottom ones
+# such as V_SS) by extending the wire that leads to them, where the way is clear of
+# everything else; `nothing` leaves that kind alone. Only that wire and the symbol move.
+function liftsupplies(items::Vector{Placed}, top, bot)
+    items = copy(items)
+    devs = Dict{String,Placed}(t.name => t for t in items if t isa Union{Transistor,Opamp})
+    rp(p) = p isa PinRef ? pin(devs[p.device], p.pin) : p
+    # obstacles: (xmin, xmax, ymin, ymax) of each item, by index
+    function boxes(it)
+        bx(a, b, m) = [(min(a.x, b.x) - m, max(a.x, b.x) + m, min(a.y, b.y) - m, max(a.y, b.y) + m)]
+        it isa Wire && return reduce(vcat, (bx(rp(it.pts[i]), rp(it.pts[i+1]), 0.05) for i in 1:length(it.pts)-1);
+                                     init=NTuple{4,Float64}[])
+        it isa Bipole && return bx(it.a, it.b, 0.3)
+        it isa Transistor && return [(it.at.x - it.w, it.at.x + it.w, it.at.y - it.h, it.at.y + it.h)]
+        it isa Opamp && return [(it.at.x - it.w, it.at.x + it.w, it.at.y - 0.9 * it.w, it.at.y + 0.9 * it.w)]
+        it isa Caption && return bx(it.at, it.at, 0.5)
+        it isa Union{Ground,Supply,Port,NodeLabel,Dot} && return bx(it.at, it.at, 0.2)
+        NTuple{4,Float64}[]
+    end
+    near(p, q) = abs(p.x - q.x) <= YTOL && abs(p.y - q.y) <= YTOL
+    for i in eachindex(items)
+        sup = items[i]
+        sup isa Supply || continue
+        target = sup.up ? top : bot
+        target === nothing && continue
+        dy = target - sup.at.y
+        (sup.up ? dy > YTOL : dy < -YTOL) || continue
+        # the wire ending at the symbol, arriving from below (from above for V_SS)
+        j = findfirst(eachindex(items)) do k
+            w = items[k]
+            w isa Wire && length(w.pts) >= 2 || return false
+            for (e, n) in ((1, 2), (length(w.pts), length(w.pts) - 1))
+                pe, pn = w.pts[e], rp(w.pts[n])
+                pe isa Pt && near(pe, sup.at) && abs(pn.x - pe.x) <= YTOL &&
+                    (sup.up ? pn.y < pe.y : pn.y > pe.y) && return true
+            end
+            false
+        end
+        j === nothing && continue
+        x = sup.at.x
+        lo, hi = sup.up ? (sup.at.y + YTOL, target + 0.35) : (target - 0.35, sup.at.y - YTOL)
+        blocked = any(k -> k != i && k != j &&
+                          any(b -> b[1] < x + 0.25 && b[2] > x - 0.25 && b[3] < hi && b[4] > lo, boxes(items[k])),
+                      eachindex(items))
+        blocked && continue
+        new = Pt(x, target)
+        w = items[j]
+        items[j] = Wire(WirePt[p isa Pt && near(p, sup.at) ? new : p for p in w.pts])
+        items[i] = Supply(new, sup.label, sup.up)
+    end
+    items
+end
+
+# A part's own rails: its top supplies at the height of the highest one, its bottom
+# supplies at the height of the lowest one.
+function partrails(s::Schematic)
+    tops = [it.at.y for it in s.items if it isa Supply && it.up]
+    bots = [it.at.y for it in s.items if it isa Supply && !it.up]
+    Schematic(s; items=liftsupplies(collect(Placed, s.items), isempty(tops) ? nothing : maximum(tops),
+                                    isempty(bots) ? nothing : minimum(bots)))
+end
 
 # Height map that raises a part's top supplies by `up` and lowers its bottom supplies by
 # `down`, by stretching the elastic band just below the top supplies (above every fixed
@@ -329,6 +413,12 @@ function railmap(s::Schematic, up, down, fixed)
     end
     y -> y + (cut_up !== nothing && y >= cut_up - YTOL ? up : 0.0) -
              (cut_down !== nothing && y <= cut_down + YTOL ? down : 0.0)
+end
+
+# Height of a part's top (`top=true`) or bottom supply line, or `default` without one.
+function railline(s::Schematic, top::Bool, default)
+    ys = [it.at.y for it in s.items if it isa Supply && it.up == top]
+    isempty(ys) ? default : top ? maximum(ys) : minimum(ys)
 end
 
 withfields(it::T; kw...) where {T} =

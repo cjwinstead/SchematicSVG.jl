@@ -23,8 +23,10 @@ Changes since v0.7.2.
   `Current` primitive.
 - **Supply rails and compacting in `layout`**: in a row, the parts' V_DD (and other top
   supplies) line up at the top of the figure and V_SS at the bottom, by lengthening the
-  vertical wires that lead to them; long runs of vertical wire are first shortened to one
-  row. `rails=false` and `compact=false` turn these off.
+  vertical wires that lead to them. In a column, each stage's supplies line up on its own
+  top and bottom lines, and stages stack `gap` apart from one stage's V_SS line to the next
+  stage's V_DD line. Long runs of vertical wire are shortened to one row, before placing
+  and again in the finished figure. `rails=false` and `compact=false` turn these off.
 - **Node labels**: `label_nodes(s)`, or `nodelabels=true` in `ascii_schematic` and
   `tikz_schematic`, labels every node that doesn't already show a name with its netlist
   name (`n1`, `n2`, …); `nodes=:all` / `nodelabels=:all` also labels ground and supplies.

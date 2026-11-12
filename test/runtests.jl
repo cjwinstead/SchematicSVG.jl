@@ -702,10 +702,38 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         R = layout(A, B; connect=c, rails=false)
         @test spread(R) < spread(old) && !level(rail(R, false))
         @test level(rail(layout(A, B; connect=c, compact=false), true))
-        # a single drawing is compacted too; columns get no rails
+        # a single drawing is compacted too
         b = ascii_schematic(B)
         @test spread(layout(b)) < spread(b) && circuit(layout(b)) == circuit(b)
-        @test circuit(layout(A, B; direction=:column)) isa Dict
+
+        # a second V_DD lower in its part: lifted on its own wire to the rail
+        C = """
+             vdd
+              |
+              R1       vdd
+              |         |
+              +---------+---out
+              |
+              R2
+              |
+             vss
+        """
+        @test !level(rail(ascii_schematic(C), true))
+        @test level(rail(layout(C, A), true))
+        cv = Dict("R1_1" => 1, "R2_1" => 1, "R1_2" => 1, "R2_2" => 1)
+        cc(s) = Dict(d.name => d.nodes for d in schematic_netlist(s; elements=cv).devices)
+        @test cc(layout(C, A)) == cc(layout(C, A; rails=false, compact=false))
+
+        # columns: each stage's supplies on its own lines, stages `gap` apart from one
+        # stage's V_SS line to the next stage's V_DD line, then squeezed
+        for g in (1.5, 2.0)
+            col = layout(C, A; direction=:column, gap=g)
+            tops, bots = sort(rail(col, true)), sort(rail(col, false))
+            @test tops[2] ≈ tops[3] > tops[1]                   # C's two V_DD on one line
+            @test bots[2] - tops[1] ≈ g                          # C's V_SS to A's V_DD
+        end
+        col, oldcol = layout(A, B; direction=:column), layout(A, B; direction=:column, compact=false, rails=false)
+        @test spread(col) < spread(oldcol) - 2 && circuit(col) == circuit(oldcol)
     end
 
     @testset "node labels" begin
