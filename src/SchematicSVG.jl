@@ -17,7 +17,7 @@ export annotate, si
 export tikz_schematic, @tikz_str
 export schematic_netlist, spice_netlist, to_microelectronics, SchematicNetlist, NetDevice, parse_value
 export spice_subcircuit, to_subcircuit
-export layout
+export layout, label_nodes
 
 include("primitives.jl")   # geometry and placed primitives
 include("svg.jl")          # Schematic container, show method, SVG renderer

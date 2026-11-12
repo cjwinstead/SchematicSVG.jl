@@ -141,46 +141,13 @@ iscurrentcontrol(c) = c isa Union{AbstractString,Symbol}
 
 # ─────────────── extraction ───────────────
 
-"""
-    schematic_netlist(s::Schematic; elements=(), supplies=Dict()) -> SchematicNetlist
-
-Extract the circuit drawn in `s`: devices with their nodes in SPICE order, and node
-names. Ground symbols are node `"0"`; supply symbols, terminals and `@` node tags name
-their nodes (`vdd`, `vin`, …); other nodes are numbered `n1`, `n2`, ….
-
-Device values are looked up by instance name (case-insensitive) in `elements` (a
-collection of element objects or a `name => value` dictionary, as for
-[`annotate`](@ref)), then in the elements the schematic was annotated with, and finally
-read from the drawing's text. For dependent sources give `(gain, control)`: a pair of
-node names for E/G sources, a voltage-source name for H/F sources. `supplies` gives the
-voltage of each supply net, e.g. `Dict("vdd" => 5)`.
-
-`rename` maps drawn node names to netlist names, e.g. `Dict("vdd" => "vdd!")` for global
-nodes. `external` lists nodes connected outside the drawing (subcircuit terminals, global
-supplies): they count as driven for the DC check and need no supply voltage. The symbol
-`:terminals` in `external` stands for every drawn terminal (see `SchematicNetlist`).
-
-Warns about devices without a value, unconnected pins, nodes with conflicting names, and
-nodes with no DC path to ground.
-"""
-function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=(), rename=Dict())
+# Connectivity and node names of a drawing, shared by `schematic_netlist` and
+# `label_nodes`: geometry joined into nets, then named (ground > supplies > terminals and
+# node tags > n1, n2, …). Unnamed nets are numbered in the order the netlist lists device
+# pins, so every caller sees the same names.
+function nodenames(s::Schematic; rename=Dict())
     renames = Dict{String,String}(lowercase(string(k)) => string(v) for (k, v) in rename)
     rn(n) = get(renames, lowercase(n), n)
-    externals = Set{String}()
-    for x in external
-        x === :terminals && continue                     # added once the nodes are named
-        push!(externals, lowercase(string(x)), lowercase(rn(string(x))))
-    end
-    vals = copy(s.values)
-    if elements isa AbstractDict
-        for (k, v) in elements
-            vals[uppercase(string(k))] = v
-        end
-    else
-        for e in elements
-            vals[uppercase(instancename(e))] = e
-        end
-    end
     devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
     resolvept(p) = p isa PinRef ? pin(devs[p.device], p.pin) : p
 
@@ -256,6 +223,54 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
         end
     end
 
+    for it in s.items                                    # number the unnamed nets
+        it isa Union{Bipole,Transistor,Opamp} || continue
+        it isa Bipole && it.kind in (:short, :open, :box) && continue
+        foreach(netname, devicepins(it))
+    end
+    (; rn, devs, segs, pts, root, named, supplynets, netname, auto)
+end
+
+"""
+    schematic_netlist(s::Schematic; elements=(), supplies=Dict()) -> SchematicNetlist
+
+Extract the circuit drawn in `s`: devices with their nodes in SPICE order, and node
+names. Ground symbols are node `"0"`; supply symbols, terminals and `@` node tags name
+their nodes (`vdd`, `vin`, …); other nodes are numbered `n1`, `n2`, ….
+
+Device values are looked up by instance name (case-insensitive) in `elements` (a
+collection of element objects or a `name => value` dictionary, as for
+[`annotate`](@ref)), then in the elements the schematic was annotated with, and finally
+read from the drawing's text. For dependent sources give `(gain, control)`: a pair of
+node names for E/G sources, a voltage-source name for H/F sources. `supplies` gives the
+voltage of each supply net, e.g. `Dict("vdd" => 5)`.
+
+`rename` maps drawn node names to netlist names, e.g. `Dict("vdd" => "vdd!")` for global
+nodes. `external` lists nodes connected outside the drawing (subcircuit terminals, global
+supplies): they count as driven for the DC check and need no supply voltage. The symbol
+`:terminals` in `external` stands for every drawn terminal (see `SchematicNetlist`).
+
+Warns about devices without a value, unconnected pins, nodes with conflicting names, and
+nodes with no DC path to ground.
+"""
+function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=(), rename=Dict())
+    g = nodenames(s; rename)
+    rn, root, named, supplynets, netname, auto = g.rn, g.root, g.named, g.supplynets, g.netname, g.auto
+    externals = Set{String}()
+    for x in external
+        x === :terminals && continue                     # added once the nodes are named
+        push!(externals, lowercase(string(x)), lowercase(rn(string(x))))
+    end
+    vals = copy(s.values)
+    if elements isa AbstractDict
+        for (k, v) in elements
+            vals[uppercase(string(k))] = v
+        end
+    else
+        for e in elements
+            vals[uppercase(instancename(e))] = e
+        end
+    end
     # Terminals: named nodes with a terminal circle (a circle named by a tag or CircuiTikZ
     # text at the same point counts), left to right, then top to bottom. Circles on ground
     # or a supply, and unnamed ones, are not terminals.
@@ -436,6 +451,83 @@ const DEFAULT_MODEL = Dict(:D => "D1N914", :nmos => "ald1105n", :pmos => "ald110
 "SPICE instance name: the drawn name, with the device letter prepended if it is missing."
 spicename(name::AbstractString, letter::Char) =
     !isempty(name) && uppercase(name[1]) == letter ? String(name) : string(letter, name)
+
+# ─────────────── node labels ───────────────
+
+"""
+    label_nodes(s::Schematic; nodes=:unnamed, rename=Dict()) -> Schematic
+
+A copy of `s` with every node labelled by its netlist name, so the drawing can be read
+side by side with `spice_netlist(s)` or `schematic_netlist(s)`.
+
+By default only the nodes that don't already show a name get a label: the ones the
+netlist calls `n1`, `n2`, …. Terminals and `@` node tags already show their names.
+`nodes=:all` also labels ground (`0`) and supply nodes (`vdd`, …) with their netlist
+names. `rename` is the same mapping as for `schematic_netlist`, so the labels match a
+netlist written with it.
+
+Each label sits beside the node's longest wire (above a horizontal wire, right of a
+vertical one), at a spot no other node's wire passes through. `ascii_schematic(…;
+nodelabels=true)` and `tikz_schematic(…; nodelabels=true)` (or `nodelabels=:all`) do the
+same as they draw.
+"""
+function label_nodes(s::Schematic; nodes::Symbol=:unnamed, rename=Dict())
+    nodes in (:unnamed, :all) ||
+        throw(ArgumentError("nodes must be :unnamed or :all, got $(repr(nodes))"))
+    g = nodenames(s; rename)
+    shown = Set(g.root(it.at) for it in s.items if it isa Union{Port,NodeLabel} && !isempty(it.name))
+    rep = Dict{Tuple{Int,Int},Pt}()                  # a point of each node
+    for p in g.pts
+        get!(rep, g.root(p), p)
+    end
+    segsof = Dict{Tuple{Int,Int},Vector{Tuple{Pt,Pt}}}()
+    for (a, b) in g.segs
+        push!(get!(segsof, g.root(a), Tuple{Pt,Pt}[]), (a, b))
+    end
+    # A spot on another node's wire would join the two nodes if the drawing were
+    # netlisted again (e.g. at a crossing), so labels never go there; they also keep
+    # 20 px from other nodes' wires and 24 px from each other where they can.
+    free(p, r) = !any(((a, b),) -> g.root(a) != r && (inside(p, a, b) || netkey(p) in (netkey(a), netkey(b))), g.segs)
+    function pxdist(p, a, b)                         # point to segment, in pixels
+        P, A, B = px(s, p), px(s, a), px(s, b)
+        d = B - A
+        L2 = d.x^2 + d.y^2
+        t = L2 == 0 ? 0.0 : clamp(((P.x - A.x) * d.x + (P.y - A.y) * d.y) / L2, 0, 1)
+        q = A + t * d
+        hypot(P.x - q.x, P.y - q.y)
+    end
+    placed = Pt[]
+    roomy(p, r) = all(((a, b),) -> g.root(a) == r || pxdist(p, a, b) >= 20, g.segs) &&
+                  all(q -> pxdist(p, q, q) >= 24, placed)
+    labels = Placed[]
+    for (r, p0) in sort!(collect(rep); by=x -> (-x[2].y, x[2].x))      # top to bottom
+        r in shown && continue
+        prio = haskey(g.named, r) ? g.named[r][1] : 3
+        prio <= 1 && nodes != :all && continue        # ground and supplies show their symbols
+        name = g.netname(p0)
+        # candidate spots along the node's wires, longest wire first (horizontal before
+        # vertical), from the middle outwards; the first roomy one wins, else the first free
+        cands = Tuple{Pt,Symbol}[]
+        for (a, b) in sort(get(segsof, r, Tuple{Pt,Pt}[]);
+                           by=((a, b),) -> (-hypot(px(s, b).x - px(s, a).x, px(s, b).y - px(s, a).y),
+                                            abs(b.y - a.y) > abs(b.x - a.x)))
+            side = abs(b.y - a.y) > abs(b.x - a.x) ? :right : :above
+            for t in (0.5, 0.35, 0.65, 0.25, 0.75, 0.15, 0.85)
+                q = a + t * (b - a)
+                free(q, r) && push!(cands, (q, side))
+            end
+        end
+        i = something(findfirst(c -> roomy(c[1], r), cands), isempty(cands) ? 0 : 1)
+        spot, side = i == 0 ? (p0, :above) : cands[i]
+        push!(placed, spot)
+        push!(labels, NodeLabel(spot, name, side))
+    end
+    Schematic(s; items=vcat(s.items, labels))
+end
+
+# The `nodelabels` keyword of the drawing functions: false, true (= :unnamed) or :all.
+withnodelabels(s::Schematic, nodelabels) =
+    nodelabels === false ? s : label_nodes(s; nodes=nodelabels === true ? :unnamed : nodelabels)
 
 # ─────────────── SPICE text ───────────────
 

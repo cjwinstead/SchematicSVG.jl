@@ -21,6 +21,9 @@ Changes since v0.7.2.
 - **Current arrows**: ASCII `~i1>`, `<~i1`, `~i1^`, `~i1v` inside a wire; CircuiTikZ `i=`
   and its variants (`i_=`, `i<=`, `i>_=`, …) placed as CircuiTikZ places them; the
   `Current` primitive.
+- **Node labels**: `label_nodes(s)`, or `nodelabels=true` in `ascii_schematic` and
+  `tikz_schematic`, labels every node that doesn't already show a name with its netlist
+  name (`n1`, `n2`, …); `nodes=:all` / `nodelabels=:all` also labels ground and supplies.
 - **Sinusoidal sources in ASCII drawings**: `SVsig` is a sinusoidal voltage source named
   `Vsig` and `SIb` a sinusoidal current source named `Ib`, with the same direction markers
   as `V` and `I`. Give them `(amplitude=…, frequency=…, offset=…)` or SPICE text such as

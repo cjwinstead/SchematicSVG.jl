@@ -656,6 +656,49 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test length(collect(eachmatch(r"<polygon", to_svg(p)))) == 3
     end
 
+    @testset "node labels" begin
+        div = """
+           vin--R1--+--R2--+
+                    |      |
+                    R3     C1
+                    |      |
+                   gnd    gnd
+        """
+        vals = Dict("R1" => 1e3, "R2" => 1e3, "R3" => 1e3, "C1" => 1e-9)
+        nodes(s) = Dict(d.name => d.nodes for d in schematic_netlist(s; elements=vals).devices)
+        names(s) = sort([x.name for x in s.items if x isa NodeLabel])
+        s = ascii_schematic(div)
+        @test nodes(s) == Dict("R1" => ["vin", "n1"], "R2" => ["n1", "n2"], "R3" => ["n1", "0"], "C1" => ["n2", "0"])
+        L = label_nodes(s)
+        @test names(L) == ["n1", "n2"]                       # vin already shows its name
+        @test nodes(L) == nodes(s)        # labelling doesn't change the circuit (a label off its
+                                          # node's wire would start a new node and rename them)
+        @test names(label_nodes(s; nodes=:all)) == ["0", "0", "n1", "n2"]   # one per ground symbol
+        @test names(ascii_schematic(div; nodelabels=true)) == names(L)
+        @test names(ascii_schematic(div; nodelabels=:all)) == ["0", "0", "n1", "n2"]
+        @test names(label_nodes(s; rename=Dict("n1" => "mid"))) == ["mid", "n2"]
+        # never on another node's wire: a label at the crossing would join the two nodes
+        cross = ascii_schematic("""
+                    gnd
+                     |
+                     R1
+                     |
+            gnd--R2--)--R3--gnd
+                     |
+                     R4
+                     |
+                    gnd
+        """)
+        cv = Dict("R1" => 1, "R2" => 1, "R3" => 1, "R4" => 1)
+        cn(s) = Dict(d.name => d.nodes for d in schematic_netlist(s; elements=cv).devices)
+        @test cn(label_nodes(cross)) == cn(cross) && names(label_nodes(cross)) == ["n1", "n2"]
+        # CircuiTikZ
+        tk = tikz_schematic(raw"\draw (0,0) node[ground]{} to[V=1] (0,2) to[R=1k] (2,2) to[R=2k] (2,0) node[ground]{};";
+                            nodelabels=true)
+        @test names(tk) == ["n1", "n2"]
+        @test_throws ArgumentError label_nodes(s; nodes=:some)
+    end
+
     @testset "sinusoidal sources" begin
         art = """
            +--@in--RS--+--out

@@ -50,6 +50,22 @@ netlisters use them ([Netlists and simulation](@ref)).
 including hand-placed ones (give each element a `name`), and [`si`](@ref) formats numbers
 for your own labels: `si(4700, "Ω") == "4.7 kΩ"`.
 
+## Node labels
+
+`nodelabels=true` labels every node with its netlist name, so the drawing can be read
+next to `spice_netlist(s)`. Nodes that already show a name (terminals and `@` tags) keep
+it, and the rest get the `n1`, `n2`, … the netlist uses:
+
+```@example ann
+ascii_schematic(amp; elements=vals, nodelabels=true)
+```
+
+`nodelabels=:all` also labels ground (`0`) and supply nodes with their netlist names.
+[`label_nodes`](@ref)`(s; nodes, rename)` does the same for any `Schematic`, including
+CircuiTikZ drawings and layouts; give it the same `rename` as the netlist to match renamed
+nodes. Each label sits beside one of its node's wires, away from other nodes' wires, and
+labelling never changes the circuit.
+
 ## Your own element types
 
 If your element type stores the name or value under other field names, add methods

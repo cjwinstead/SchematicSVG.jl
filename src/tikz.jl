@@ -532,18 +532,21 @@ function runpath!(st::TikzState, s::AbstractString)
 end
 
 """
-    tikz_schematic(src; elements=(), nodes=Dict(), style=:below, kw...) -> Schematic
+    tikz_schematic(src; elements=(), nodes=Dict(), style=:below, nodelabels=false, kw...) -> Schematic
 
 Read CircuiTikZ source (a `circuitikz` environment, or just its `\\draw` statements) and
 return a `Schematic` that displays as SVG. Supports the common subset of CircuiTikZ (see
 the README); statements it can't read are skipped with a warning. `elements`, `nodes`
-and `style` add annotations as in [`annotate`](@ref); other keywords go to `Schematic`.
+and `style` add annotations as in [`annotate`](@ref); `nodelabels=true` (or `:all`) labels
+the nodes with their netlist names as in [`label_nodes`](@ref); other keywords go to
+`Schematic`.
 
 Coordinates are taken as cm, so the default `scale=50` draws 1 cm as 50 px. The
 environment's `xscale=`/`yscale=` (and these keywords) spread the layout while symbols and
 text keep their size.
 """
-function tikz_schematic(src::AbstractString; elements=(), nodes=Dict(), style::Symbol=:below, kw...)
+function tikz_schematic(src::AbstractString; elements=(), nodes=Dict(), style::Symbol=:below,
+                        nodelabels=false, kw...)
     s = stripcomments(src)
     scale = 1.0
     xs = ys = 1.0                               # environment xscale= / yscale=
@@ -592,7 +595,8 @@ function tikz_schematic(src::AbstractString; elements=(), nodes=Dict(), style::S
     opts[:xscale] = xs * get(opts, :xscale, 1.0)
     opts[:yscale] = ys * get(opts, :yscale, 1.0)
     sch = Schematic(st.items; opts...)
-    isempty(elements) && isempty(nodes) ? sch : annotate(sch, elements; nodes, style)
+    sch = isempty(elements) && isempty(nodes) ? sch : annotate(sch, elements; nodes, style)
+    withnodelabels(sch, nodelabels)
 end
 
 """

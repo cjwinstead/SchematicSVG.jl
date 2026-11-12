@@ -158,7 +158,7 @@ end
 
 """
     ascii_schematic(art; elements=(), nodes=Dict(), style=:below, labels=Dict(),
-                    dx=0.5, dy=0.8, kw...) -> Schematic
+                    dx=0.5, dy=0.8, nodelabels=false, kw...) -> Schematic
 
 Turn ASCII art into a schematic (see the legend in the source).
 
@@ -166,12 +166,15 @@ Turn ASCII art into a schematic (see the legend in the source).
   drawing; see [`annotate`](@ref).
 - `labels`: overrides the default label of any word or node tag, e.g.
   `Dict("R1" => raw"\$R_{load}\$")`.
+- `nodelabels`: `true` labels every node that doesn't already show a name with its
+  netlist name (`n1`, `n2`, …), and `:all` also labels ground and supplies; see
+  [`label_nodes`](@ref).
 - `dx`/`dy`: size of a character cell in circuit units. Other keywords go to `Schematic`,
   e.g. `xscale=1.5` / `yscale=0.8` to spread or tighten the layout while symbols and text
   keep their size.
 """
 function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::Symbol=:below,
-                         labels=Dict{String,String}(), dx=0.5, dy=0.8, kw...)
+                         labels=Dict{String,String}(), dx=0.5, dy=0.8, nodelabels=false, kw...)
     g = [collect(replace(l, '\t' => "    ")) for l in split(art, '\n')]
     toks = tokenize(g)
     owner = Set{Tuple{Int,Int}}()
@@ -449,7 +452,8 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
         (ch(r, c) == '*' || (n >= 3 && ch(r, c) != ')')) && push!(items, Dot(P(r, c)))
     end
     s = Schematic(items; kw...)
-    isempty(elements) && isempty(nodes) ? s : annotate(s, elements; nodes, style)
+    s = isempty(elements) && isempty(nodes) ? s : annotate(s, elements; nodes, style)
+    withnodelabels(s, nodelabels)
 end
 
 """

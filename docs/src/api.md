@@ -37,6 +37,7 @@ Caption
 
 ```@docs
 annotate
+label_nodes
 si
 SchematicSVG.instancename
 SchematicSVG.annotation
