@@ -133,7 +133,9 @@ stays where it is.
 
 In a column, each stage's top supplies line up on one line and its bottom supplies on
 another, and the stages stack `gap` apart, measured from one stage's bottom supply line
-to the next stage's top line, as in the column example above.
+to the next stage's top line, as in the column example above. A supply whose way up to the top of
+the figure (or down to the bottom) is clear, beside a narrower stage, goes on to that rail
+too.
 
 Before the parts are placed, long runs of vertical wire are shortened to one row, so a
 drawing doesn't take more height than it needs. Only stretches that nothing but vertical

@@ -25,7 +25,8 @@ Changes since v0.7.2.
   supplies) line up at the top of the figure and V_SS at the bottom, by lengthening the
   vertical wires that lead to them. In a column, each stage's supplies line up on its own
   top and bottom lines, and stages stack `gap` apart from one stage's V_SS line to the next
-  stage's V_DD line. Long runs of vertical wire are shortened to one row, before placing
+  stage's V_DD line; a supply with a clear way up (or down) beside the other stages goes on
+  to the figure's top (or bottom) rail. Long runs of vertical wire are shortened to one row, before placing
   and again in the finished figure. `rails=false` and `compact=false` turn these off.
 - **Node labels**: `label_nodes(s)`, or `nodelabels=true` in `ascii_schematic` and
   `tikz_schematic`, labels every node that doesn't already show a name with its netlist

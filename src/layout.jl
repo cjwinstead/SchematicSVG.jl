@@ -34,7 +34,9 @@ In a row, every part's top supplies (V_DD, V_CC) line up at the top of the figur
 bottom supplies (V_SS, V_EE) at the bottom, by lengthening the vertical wires that lead to
 them. In a column, each stage's top supplies line up on one line and its bottom supplies
 on another, and the stages stack `gap` apart from one stage's bottom supply line to the
-next stage's top line (`rails=false` turns all this off). Before placing the parts, long runs of vertical wire
+next stage's top line; a supply whose way up to the top of the figure (or down to the
+bottom) is clear, beside the other stages, goes all the way there too (`rails=false` turns
+all this off). Before placing the parts, long runs of vertical wire
 are shortened to one row, and the finished figure is squeezed the same way
 (`compact=false` keeps them): only stretches where nothing but vertical wires cross, so
 components keep their spacing and the rails stay lined up. Wires of a drawn connection stay
@@ -206,8 +208,11 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
         end
     end
     append!(items, extra)
-    if rails && row && np > 1
-        # supplies the bands couldn't move (blocked, or a second V_DD lower in its part)
+    if rails && np > 1
+        # Figure-wide rails: in a row, supplies the bands couldn't move (blocked, or a
+        # second V_DD lower in its part); in a column, any stage's supply whose way up to
+        # the top of the figure (or down to the bottom) is clear, e.g. beside a narrower
+        # stage above it.
         items = liftsupplies(items, ytop, ybot)
     end
     sch = Schematic(ss[1]; items, values, kw...)

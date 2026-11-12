@@ -734,6 +734,33 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         end
         col, oldcol = layout(A, B; direction=:column), layout(A, B; direction=:column, compact=false, rails=false)
         @test spread(col) < spread(oldcol) - 2 && circuit(col) == circuit(oldcol)
+
+        # a column where a lower stage's V_DD has a clear way up beside the stage above:
+        # it goes to the top rail, and both V_SS share the bottom one
+        src = """
+        vdd
+         |
+         SVsig
+         |
+         sig
+        """
+        mirror = """
+        vdd    in
+         |      |
+        P1|-*--|P2
+         |  |   |
+         *--+   RD
+         |      |
+         RS     vss
+         |
+        vss
+        """
+        mv = Dict("RD" => 1e3, "RS" => 1e3, "Vsig" => "SIN(0 1 1k)")
+        mc(s) = Dict(d.name => d.nodes for d in schematic_netlist(s; elements=mv).devices)
+        M = layout(src, mirror; direction=:column, connect=[(1, "sig") => (2, "in")])
+        @test level(rail(M, true)) && level(rail(M, false)) && length(rail(M, true)) == 2
+        Mold = layout(src, mirror; direction=:column, connect=[(1, "sig") => (2, "in")], rails=false, compact=false)
+        @test mc(M) == mc(Mold) && !level(rail(Mold, true))
     end
 
     @testset "node labels" begin
