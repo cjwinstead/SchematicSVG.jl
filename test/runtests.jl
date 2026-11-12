@@ -656,6 +656,58 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test length(collect(eachmatch(r"<polygon", to_svg(p)))) == 3
     end
 
+    @testset "layout: compacting and supply rails" begin
+        A = """
+             vdd
+              |
+              R1
+              |
+              +---out
+              |
+              R2
+              |
+             vss
+        """
+        B = """
+                  vdd
+                   |
+                   |
+                   |
+                   R4
+                   |
+           in------+
+                   |
+                   R3
+                   |
+                   |
+                   |
+                  vss
+        """
+        rv = Dict("R1" => 1, "R2" => 1, "R3" => 1, "R4" => 1)
+        circuit(s) = Dict(d.name => d.nodes for d in schematic_netlist(s; elements=rv).devices)
+        rail(s, up) = [x.at.y for x in s.items if x isa Supply && x.up == up]
+        spread(s) = maximum(rail(s, true)) - minimum(rail(s, false))
+        level(v) = maximum(v) - minimum(v) < 1e-9                       # all at one height
+        c = [(1, "out") => (2, "in")]
+        L = layout(A, B; connect=c)
+        old = layout(A, B; connect=c, compact=false, rails=false)
+        @test circuit(L) == circuit(old) ==
+              Dict("R1" => ["vdd", "out"], "R2" => ["out", "vss"], "R4" => ["vdd", "out"], "R3" => ["out", "vss"])
+        @test level(rail(L, true)) && level(rail(L, false))      # V_DD and V_SS on one line each
+        @test !level(rail(old, true)) && !level(rail(old, false))
+        @test spread(L) < spread(old) - 2                              # long vertical runs shortened
+        w = L.items[end-1]                                             # the drawn connection
+        @test w isa Wire && w.pts[1].y ≈ w.pts[2].y
+        # each step on its own
+        R = layout(A, B; connect=c, rails=false)
+        @test spread(R) < spread(old) && !level(rail(R, false))
+        @test level(rail(layout(A, B; connect=c, compact=false), true))
+        # a single drawing is compacted too; columns get no rails
+        b = ascii_schematic(B)
+        @test spread(layout(b)) < spread(b) && circuit(layout(b)) == circuit(b)
+        @test circuit(layout(A, B; direction=:column)) isa Dict
+    end
+
     @testset "node labels" begin
         div = """
            vin--R1--+--R2--+

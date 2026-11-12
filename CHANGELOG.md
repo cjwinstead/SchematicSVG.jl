@@ -21,6 +21,10 @@ Changes since v0.7.2.
 - **Current arrows**: ASCII `~i1>`, `<~i1`, `~i1^`, `~i1v` inside a wire; CircuiTikZ `i=`
   and its variants (`i_=`, `i<=`, `i>_=`, …) placed as CircuiTikZ places them; the
   `Current` primitive.
+- **Supply rails and compacting in `layout`**: in a row, the parts' V_DD (and other top
+  supplies) line up at the top of the figure and V_SS at the bottom, by lengthening the
+  vertical wires that lead to them; long runs of vertical wire are first shortened to one
+  row. `rails=false` and `compact=false` turn these off.
 - **Node labels**: `label_nodes(s)`, or `nodelabels=true` in `ascii_schematic` and
   `tikz_schematic`, labels every node that doesn't already show a name with its netlist
   name (`n1`, `n2`, …); `nodes=:all` / `nodelabels=:all` also labels ground and supplies.

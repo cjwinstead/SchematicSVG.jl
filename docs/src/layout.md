@@ -123,6 +123,18 @@ labels in the drawing are left as they are. Names used in only one part (`RD`, `
 that name is used elsewhere (`out_1` above). `share=["vb"]` makes a node common to every
 part that has it.
 
+### Supply rails and compacting
+
+In a row, every part's top supplies (V_DD, V_CC) line up at the top of the figure and its
+bottom supplies (V_SS, V_EE) at the bottom, so the stages above share rails. The vertical
+wires leading to a supply get longer to reach the rail; drawn connections stay straight,
+and a supply that can't move without bending one stays where it is.
+
+Before the parts are placed, long runs of vertical wire are shortened to one row, so a
+drawing doesn't take more height than it needs. Only stretches that nothing but vertical
+wires cross are shortened, so components, labels and their spacing stay as drawn.
+`rails=false` and `compact=false` turn these off.
+
 ### Options
 
 - A drawn connection needs neighbouring parts, and each neighbouring pair can have one;

@@ -2,7 +2,7 @@
 
 """
     layout(parts...; direction=:row, gap=1.5, align=nothing, connect=[], share=[],
-           nodelabels=false, kw...) -> Schematic
+           nodelabels=false, compact=true, rails=true, kw...) -> Schematic
 
 Place drawings side by side (`direction=:row`, left to right) or stacked
 (`direction=:column`, top to bottom) in one figure, `gap` circuit units apart. A part is
@@ -30,6 +30,13 @@ and node labels that show their node name follow the renaming.
 [`label_nodes`](@ref) does (`:all` also labels ground and supplies). Label the result
 rather than the parts: a part's labels become node names, numbered like any other name.
 
+In a row, every part's top supplies (V_DD, V_CC) line up at the top of the figure and its
+bottom supplies (V_SS, V_EE) at the bottom, by lengthening the vertical wires that lead to
+them (`rails=false` turns this off). Before placing the parts, long runs of vertical wire
+are shortened to one row (`compact=false` keeps them): only stretches where nothing but
+vertical wires cross, so components keep their spacing. Wires of a drawn connection stay
+straight; a supply that can't move without bending one stays where it is.
+
 `align` sets how parts not joined by a drawn connection line up: `:top` (the default for
 a row), `:center` or `:bottom`; for a column `:left` (the default), `:center` or `:right`.
 Other keywords are settings of the result (`xscale`, `border`, …), which otherwise come
@@ -38,7 +45,7 @@ from the first part.
 `[s1 s2]` and `[s1; s2]` lay out `Schematic`s in a row or a column with the defaults.
 """
 function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
-                connect=(), share=(), nodelabels=false, kw...)
+                connect=(), share=(), nodelabels=false, compact::Bool=true, rails::Bool=true, kw...)
     direction in (:row, :column) ||
         throw(ArgumentError("direction must be :row or :column, got $(repr(direction))"))
     isempty(parts) && throw(ArgumentError("layout needs at least one part"))
@@ -47,6 +54,7 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
     align in (row ? (:top, :center, :bottom) : (:left, :center, :right)) ||
         throw(ArgumentError("align=$(repr(align)) doesn't apply to a $direction"))
     ss = Schematic[p isa Schematic ? p : ascii_schematic(String(p)) for p in parts]
+    compact && (ss = Schematic[compacted(x) for x in ss])
     np = length(ss)
     checkpart(k) = 1 <= k <= np || throw(ArgumentError("there is no part $k (parts 1–$np)"))
 
@@ -159,13 +167,29 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
         push!(offs, d)
     end
 
-    # 4. The combined drawing.
+    # 4. Supply rails (rows): every part's top supplies (V_DD, …) move up to the top of
+    # the figure and its bottom supplies (V_SS, …) down to the bottom, by stretching a
+    # band of vertical wires; drawn connections stay where they are.
+    fys = Any[identity for _ in 1:np]
+    if rails && row && np > 1
+        ytop = maximum(boxes[k][4] + offs[k].y for k in 1:np)
+        ybot = minimum(boxes[k][3] + offs[k].y for k in 1:np)
+        for k in 1:np
+            tops = [it.at.y for it in ss[k].items if it isa Supply && it.up]
+            bots = [it.at.y for it in ss[k].items if it isa Supply && !it.up]
+            up = isempty(tops) ? 0.0 : ytop - (maximum(tops) + offs[k].y)
+            down = isempty(bots) ? 0.0 : (minimum(bots) + offs[k].y) - ybot
+            fys[k] = railmap(ss[k], up, down, [p.at.y for p in removed[k]])
+        end
+    end
+
+    # 5. The combined drawing.
     items = Placed[]
     values = Dict{String,Any}()
     for k in 1:np
         for it in ss[k].items
             any(p -> p === it, removed[k]) && continue
-            push!(items, relocate(it, offs[k], n -> ename(k, n), n -> nname(k, n)))
+            push!(items, relocate(it, offs[k], n -> ename(k, n), n -> nname(k, n); fy=fys[k]))
         end
         for (key, v) in ss[k].values
             values[uppercase(ename(k, key))] = v
@@ -177,14 +201,16 @@ end
 
 # A copy of `it` moved by `d`, with element names renamed by `ename` (also in PinRefs) and
 # node names by `nname` (and labels that show the node name).
-function relocate(it::T, d::Pt, ename, nname) where {T<:Placed}
+# `fy` remaps heights first (compacting, supply rails); then the item moves by `d`.
+function relocate(it::T, d::Pt, ename, nname; fy=identity) where {T<:Placed}
+    mv(p) = Pt(p.x, fy(p.y)) + d
     vals = Any[]
     for f in fieldnames(T)
         v = getfield(it, f)
         if v isa Pt
-            v = v + d
+            v = mv(v)
         elseif v isa Vector{WirePt}
-            v = WirePt[p isa Pt ? p + d : PinRef(ename(p.device), p.pin) for p in v]
+            v = WirePt[p isa Pt ? mv(p) : PinRef(ename(p.device), p.pin) for p in v]
         end
         push!(vals, v)
     end
@@ -197,6 +223,112 @@ function relocate(it::T, d::Pt, ename, nname) where {T<:Placed}
         x = withfields(x; name=new, label)
     end
     x
+end
+
+# ─────────────── bands: compacting and supply rails ───────────────
+# A drawing is cut into horizontal bands at every height where something sits (a wire
+# corner, a pin, a symbol end, a label point). A band is elastic when only vertical wires
+# cross it: no symbol, slanted wire or voltage mark spans it. Elastic bands can shrink or
+# grow without changing anything else in the drawing.
+const MINBAND = 0.8          # a compacted elastic band keeps one ASCII row (circuit units)
+const YTOL = 1e-6
+
+function bands(s::Schematic)
+    devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
+    rp(p) = p isa PinRef ? pin(devs[p.device], p.pin) : p
+    # Heights where something sits. A point where a vertical wire only passes through
+    # (wire above and below it, nothing else there) doesn't count: ASCII drawings draw a
+    # vertical run as one short wire per row.
+    key(p) = (round(p.x; digits=6), round(p.y; digits=6))
+    through = Dict{Tuple{Float64,Float64},Vector{Bool}}()   # point => [wire above, wire below, other]
+    mark!(p, i) = (get!(through, key(p), [false, false, false])[i] = true)
+    for it in s.items
+        if it isa Wire
+            ps = map(rp, it.pts)
+            for (i, p) in enumerate(ps)
+                prev = i > 1 ? ps[i-1] : nothing
+                nxt = i < length(ps) ? ps[i+1] : nothing
+                vert(q) = q !== nothing && abs(q.x - p.x) <= YTOL && abs(q.y - p.y) > YTOL
+                for q in (prev, nxt)
+                    q === nothing && continue
+                    vert(q) ? mark!(p, q.y > p.y ? 1 : 2) : mark!(p, 3)
+                end
+                length(ps) == 1 && mark!(p, 3)
+            end
+        else
+            foreach(p -> mark!(p, 3), anchors(it, devs))
+        end
+    end
+    ys = [k[2] for (k, (above, below, other)) in through if !(above && below && !other)]
+    spans = Tuple{Float64,Float64}[]                 # heights nothing may stretch inside
+    for it in s.items
+        if it isa Bipole && it.kind != :short
+            push!(spans, minmax(it.a.y, it.b.y))
+        elseif it isa Transistor
+            push!(spans, (it.at.y - it.h, it.at.y + it.h))
+        elseif it isa Opamp
+            e = max(it.h, 0.9 * it.w)
+            push!(spans, (it.at.y - e, it.at.y + e))
+        elseif it isa Voltage
+            push!(spans, minmax(it.plus.y, it.minus.y))
+        elseif it isa Wire
+            ps = map(rp, it.pts)
+            for i in 1:length(ps)-1
+                a, b = ps[i], ps[i+1]
+                abs(a.x - b.x) > YTOL && abs(a.y - b.y) > YTOL && push!(spans, minmax(a.y, b.y))
+            end
+        end
+    end
+    sort!(unique!(ys))
+    elastic = [!any(((lo, hi),) -> lo <= ys[k] + YTOL && hi >= ys[k+1] - YTOL, spans)
+               for k in 1:length(ys)-1]
+    ys, elastic
+end
+
+# Height map that shrinks every elastic band taller than MINBAND to MINBAND, keeping the
+# lowest point where it is.
+function compactmap(s::Schematic)
+    ys, elastic = bands(s)
+    length(ys) < 2 && return identity
+    any(k -> elastic[k] && ys[k+1] - ys[k] > MINBAND + YTOL, 1:length(ys)-1) || return identity
+    ny = copy(ys)
+    for k in 1:length(ys)-1
+        g = ys[k+1] - ys[k]
+        ny[k+1] = ny[k] + (elastic[k] ? min(g, MINBAND) : g)
+    end
+    function (y)
+        y <= ys[1] && return y
+        y >= ys[end] && return y + ny[end] - ys[end]
+        k = searchsortedlast(ys, y)
+        ny[k] + (y - ys[k]) / (ys[k+1] - ys[k]) * (ny[k+1] - ny[k])
+    end
+end
+
+compacted(s::Schematic) =
+    (f = compactmap(s); Schematic(s; items=Placed[relocate(it, Pt(0, 0), identity, identity; fy=f) for it in s.items]))
+
+# Height map that raises a part's top supplies by `up` and lowers its bottom supplies by
+# `down`, by stretching the elastic band just below the top supplies (above every fixed
+# height, e.g. a drawn connection's terminal) and the one just above the bottom supplies
+# (below every fixed height). A move with no such band is skipped.
+function railmap(s::Schematic, up, down, fixed)
+    ys, elastic = bands(s)
+    tops = [it.at.y for it in s.items if it isa Supply && it.up]
+    bots = [it.at.y for it in s.items if it isa Supply && !it.up]
+    hi, lo = isempty(fixed) ? (-Inf, Inf) : (maximum(fixed), minimum(fixed))
+    cut_up = cut_down = nothing
+    if up > YTOL && !isempty(tops)
+        j = findlast(k -> elastic[k] && ys[k] >= hi - YTOL && ys[k+1] <= minimum(tops) + YTOL,
+                     1:length(ys)-1)
+        j === nothing || (cut_up = ys[j+1])
+    end
+    if down > YTOL && !isempty(bots)
+        j = findfirst(k -> elastic[k] && ys[k+1] <= lo + YTOL && ys[k] >= maximum(bots) - YTOL,
+                      1:length(ys)-1)
+        j === nothing || (cut_down = ys[j])
+    end
+    y -> y + (cut_up !== nothing && y >= cut_up - YTOL ? up : 0.0) -
+             (cut_down !== nothing && y <= cut_down + YTOL ? down : 0.0)
 end
 
 withfields(it::T; kw...) where {T} =
