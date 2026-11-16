@@ -28,6 +28,11 @@
 #   "text"           caption centred on the quotes, e.g. a title under a stage; <"text"
 #                    starts it at the opening quote and "text"> ends it at the closing
 #                    one. May hold $…$ math; nothing inside the quotes is parsed.
+#   [p   X1/amp  s]  subcircuit instance: a box whose left and right edges are '[' and ']'
+#   [q           o]  in the same columns on consecutive rows. A name touching a bracket is
+#                    a pin (a wire outside the bracket connects to it; a wire alone makes an
+#                    unnamed pin); other text is the instance: X1/amp is instance X1 of
+#                    subcircuit amp, X1 just the instance, amp just the subcircuit.
 # A word with wires left and right is horizontal; with wires above and below, vertical.
 
 const KINDS = Dict('R' => :R, 'C' => :C, 'L' => :L, 'D' => :D, 'V' => :V, 'I' => :I,
@@ -149,6 +154,65 @@ function tokenize(g)
     toks
 end
 
+# Cells inside a pair of quotes (captions), which are never part of a block.
+function quotedcells(row)
+    q = falses(length(row))
+    c = 1
+    while (a = findnext(==('"'), row, c)) !== nothing
+        b = findnext(==('"'), row, a + 1)
+        b === nothing && break
+        q[a:b] .= true
+        c = b + 1
+    end
+    q
+end
+
+# Subcircuit boxes: '[' and ']' in the same two columns on consecutive rows, as
+# (first row, last row, column of '[', column of ']').
+function findblocks(g)
+    qs = [quotedcells(row) for row in g]
+    at(r, c, x) = 1 <= r <= length(g) && 1 <= c <= length(g[r]) && g[r][c] == x && !qs[r][c]
+    found = NTuple{4,Int}[]
+    claimed = Set{Tuple{Int,Int}}()
+    for r in eachindex(g), cL in eachindex(g[r])
+        at(r, cL, '[') && (r, cL) ∉ claimed || continue
+        cR = findnext(==(']'), g[r], cL + 1)
+        cR === nothing && continue
+        (qs[r][cR] || any(c -> g[r][c] == '[', cL+1:cR-1)) && continue
+        r2 = r
+        while at(r2 + 1, cL, '[') && at(r2 + 1, cR, ']') &&
+              all(c -> g[r2+1][c] ∉ ('[', ']'), cL+1:cR-1)
+            r2 += 1
+        end
+        at(r2 + 1, cL, '[') && @warn "subcircuit box: the ']' on row $(r2 + 1) isn't in the " *
+            "same column as the one on row $r2, so the rows make two boxes"
+        foreach(rr -> push!(claimed, (rr, cL)), r:r2)
+        push!(found, (r, r2, cL, cR))
+    end
+    found
+end
+
+# Words (runs of non-blank cells) of row `row` between columns c0 and c1: (first, last, text).
+function cellwords(row, c0, c1)
+    out = Tuple{Int,Int,String}[]
+    c = c0
+    while c <= c1
+        ch = c <= length(row) ? row[c] : ' '
+        if ch == ' '
+            c += 1
+            continue
+        end
+        s = c
+        while c <= c1 && c <= length(row) && row[c] != ' '
+            c += 1
+        end
+        push!(out, (s, c - 1, String(row[s:c-1])))
+    end
+    out
+end
+
+ispinname(w) = occursin(r"^\w+$", w)
+
 # Orthogonal path from a pin to a grid point: vertical, horizontal, vertical.
 function lpath(a::Pt, b::Pt)
     (isapprox(a.x, b.x; atol=1e-9) || isapprox(a.y, b.y; atol=1e-9)) && return Wire(a, b)
@@ -176,10 +240,18 @@ Turn ASCII art into a schematic (see the legend in the source).
 function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::Symbol=:below,
                          labels=Dict{String,String}(), dx=0.5, dy=0.8, nodelabels=false, kw...)
     g = [collect(replace(l, '\t' => "    ")) for l in split(art, '\n')]
-    toks = tokenize(g)
+    blocks = findblocks(g)
+    tg = deepcopy(g)                          # what the tokenizer sees: blocks blanked out
+    for (r1, r2, cL, cR) in blocks, r in r1:r2, c in cL:cR
+        tg[r][c] = ' '
+    end
+    toks = tokenize(tg)
     owner = Set{Tuple{Int,Int}}()
     for t in toks, c in t.s0:t.s1
         push!(owner, (t.row, c))
+    end
+    for (r1, r2, cL, cR) in blocks, r in r1:r2, c in cL:cR
+        push!(owner, (r, c))
     end
     ch(r, c) = 1 <= r <= length(g) && 1 <= c <= length(g[r]) ? g[r][c] : ' '
     iswire(r, c) = ch(r, c) in WIRECH && (r, c) ∉ owner
@@ -445,6 +517,37 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
                 push!(items, Port(p, get(labels, t.name, t.name), side; name=t.name))
             end
         end
+    end
+
+    # Subcircuit boxes: pins on the bracket columns, wired to the cell outside them.
+    for (r1, r2, cL, cR) in blocks
+        pins = BlockPin[]
+        rights = BlockPin[]
+        rest = String[]
+        for r in r1:r2
+            words = cellwords(g[r], cL + 1, cR - 1)
+            for (side, col, out) in ((:left, cL, cL - 1), (:right, cR, cR + 1))
+                i = side == :left ? findfirst(w -> w[1] == cL + 1, words) :
+                                    findfirst(w -> w[2] == cR - 1, words)
+                named = i !== nothing && ispinname(words[i][3])
+                wired = iswire(r, out)
+                named || wired || continue
+                push!(side == :left ? pins : rights, BlockPin(named ? words[i][3] : "", P(r, col), side))
+                named && deleteat!(words, i)
+                wired && (push!(items, Wire(P(r, out), P(r, col))); bump!(r, out))
+            end
+            append!(rest, (w[3] for w in words))
+        end
+        spec = isempty(rest) ? "" : rest[1]
+        length(rest) > 1 &&
+            @warn "subcircuit box at row $r1: text $(join(repr.(rest[2:end]), ", ")) ignored (one instance per box)"
+        name, model = occursin('/', spec) ? split(spec, '/'; limit=2) :
+                      startswith(spec, 'X') ? (spec, "") : ("", spec)
+        name, model = String(name), String(model)
+        lo = P(r2, cL) - Pt(0, dy / 2)
+        hi = P(r1, cR) + Pt(0, dy / 2)
+        label = get(labels, name, isempty(name) ? "" : deflabel(name))
+        push!(items, Block(name, lo, hi, vcat(pins, rights); label, note=model))
     end
 
     # 3. Junction dots.

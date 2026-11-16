@@ -97,4 +97,24 @@ using SchematicSVG, Microelectronics, Test
     @test to_subcircuit(rcs; name="lp").terminals == ["in", "out"]
     @test to_subcircuit(rcs; name="lp", terminals=["out", "in"]).terminals == ["out", "in"]
     @test length(to_subcircuit(rcs; name="lp").components) == 2
+    @testset "subcircuit blocks" begin
+        ota = Subcircuit(; name="amp", terminals=["inp", "inn", "out"],
+                         components=[Resistor("R1", "inp", "out", 1u"kΩ"), Resistor("R2", "inn", "out", 1u"kΩ")])
+        art = """
+        vi---[inp X1/amp out]---+---vo
+             [              ]   |
+          +--[inn           ]   |
+          |                     |
+          +---------------------+
+        """
+        s = ascii_schematic(art)
+        # order from the Subcircuit's terminals; the drawing's model name is kept
+        (; components) = to_microelectronics(s; elements=Dict("X1" => ota))
+        x = only(components)
+        @test x.prefix == "X" && x.model == "amp" && x.nodes == ["vi", "vo", "vo"]
+        @test only(filter(b -> b isa Block, annotate(s, Dict("X1" => ota)).items)).note == "amp"
+        # instance parameters
+        (; components) = to_microelectronics(s; elements=Dict("X1" => (model="amp", gain=2)))
+        @test only(only(components).parameters).name == "gain"
+    end
 end

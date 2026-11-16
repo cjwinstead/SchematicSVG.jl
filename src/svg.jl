@@ -202,6 +202,20 @@ function texts(s::Schematic, o::Opamp)
     out
 end
 
+# A block: pin names inside the box beside each pin, the label and note in the middle.
+function texts(s::Schematic, b::Block)
+    out = TextBox[]
+    for p in b.pins
+        isempty(p.name) && continue
+        C = px(s, p.at)
+        off, anchor, base = p.side == :left ? (Pt(5, 0), "start", "middle") :
+                            p.side == :right ? (Pt(-5, 0), "end", "middle") :
+                            p.side == :top ? (Pt(0, 14), "middle", "auto") : (Pt(0, -5), "middle", "auto")
+        push!(out, TextBox(C + off, anchor, base, texlabel(p.name), :pin))
+    end
+    append!(out, stacked(0.5 * (px(s, b.lo) + px(s, b.hi)), "middle", b.label, b.note))
+end
+
 function texts(s::Schematic, u::Supply)
     isempty(u.label) && return TextBox[]
     C = px(s, u.at)
@@ -232,7 +246,8 @@ function texts(s::Schematic, n::NodeLabel)
 end
 
 function render(io, ::Schematic, t::TextBox)
-    style = t.style == :node ? " font-style=\"italic\"" : t.style == :note ? " font-size=\"13\"" : ""
+    style = t.style == :node ? " font-style=\"italic\"" : t.style == :note ? " font-size=\"13\"" :
+            t.style == :pin ? " font-size=\"12\"" : ""
     print(io, "<text x=\"$(f(t.at.x))\" y=\"$(f(t.at.y))\" text-anchor=\"$(t.anchor)\" ",
               "dominant-baseline=\"$(t.base)\"$style stroke=\"none\" fill=\"currentColor\">",
               t.markup, "</text>")
@@ -521,6 +536,12 @@ function render(io, s::Schematic, p::Port, _)
     print(io, "<circle cx=\"$(f(C.x))\" cy=\"$(f(C.y))\" r=\"3\" fill=\"$fill\"/>")
 end
 
+function render(io, s::Schematic, b::Block, _)
+    A, B = px(s, b.lo), px(s, b.hi)              # page y points down: B is the top right
+    print(io, "<rect x=\"$(f(A.x))\" y=\"$(f(B.y))\" width=\"$(f(B.x - A.x))\" ",
+              "height=\"$(f(A.y - B.y))\"/>")
+end
+
 render(io, ::Schematic, ::NodeLabel, _) = nothing
 render(io, ::Schematic, ::Caption, _) = nothing
 
@@ -538,6 +559,7 @@ anchors(w::Wire, devs) = [p isa PinRef ? pin(devs[p.device], p.pin) : p for p in
 anchors(x::Union{Ground,Supply,Port,NodeLabel,Dot,Caption}, _) = [x.at]
 anchors(v::Voltage, _) = [v.plus, v.minus]
 anchors(c::Current, _) = [c.a, c.b]
+anchors(b::Block, _) = [b.lo, b.hi, Pt(b.lo.x, b.hi.y), Pt(b.hi.x, b.lo.y)]
 
 # Bounding box of every point and every text box (text width estimated per character).
 function bbox(s::Schematic, devs, boxes)
@@ -547,7 +569,7 @@ function bbox(s::Schematic, devs, boxes)
         push!(xs, q.x); push!(ys, q.y)
     end
     for t in boxes
-        w = (t.style == :note ? 8.0 : 9.0) * t.nchars
+        w = (t.style == :note ? 8.0 : t.style == :pin ? 7.0 : 9.0) * t.nchars
         x0 = t.anchor == "start" ? t.at.x : t.anchor == "end" ? t.at.x - w : t.at.x - w / 2
         push!(xs, x0, x0 + w)
         t.base == "middle" ? push!(ys, t.at.y - 9, t.at.y + 9) : push!(ys, t.at.y - 15, t.at.y + 5)
@@ -568,7 +590,7 @@ page or a document. Notebooks don't need it: a `Schematic` displays itself as SV
 """
 function to_svg(s::Schematic)
     isempty(s.items) && return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"0\" height=\"0\"></svg>"
-    devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
+    devs = Dict{String,Placed}(t.name => t for t in s.items if t isa PinDevice)
     boxes = reduce(vcat, (texts(s, it) for it in s.items); init=TextBox[])
     x, y, w, h = bbox(s, devs, boxes)
     ctx = (devs=devs, pins=pinmap(s))

@@ -12,11 +12,13 @@
     NetDevice(name, kind, nodes, value)
 
 One device of a [`SchematicNetlist`](@ref). `kind` is one of
-`:R :C :L :D :V :I :sV :sI :E :F :G :H :nmos :pmos :npn :pnp :opamp` and `nodes` are in
-SPICE order: (n+, n−) for two-terminal parts and sources, (anode, cathode) for diodes,
-(drain, gate, source), (collector, base, emitter), and (+, −, out) for op-amps. `value`
-is whatever was supplied for the device (a number, string, symbol, tuple, NamedTuple or
-an element object), or what could be read from the drawing, or `nothing`.
+`:R :C :L :D :V :I :sV :sI :E :F :G :H :nmos :pmos :npn :pnp :opamp :subckt` and `nodes`
+are in SPICE order: (n+, n−) for two-terminal parts and sources, (anode, cathode) for
+diodes, (drain, gate, source), (collector, base, emitter), (+, −, out) for op-amps, and
+the subcircuit's terminal order for a [`Block`](@ref). `value` is whatever was supplied
+for the device (a number, string, symbol, tuple, NamedTuple or an element object), or
+what could be read from the drawing, or `nothing`; for a subcircuit instance it is
+`(model=…, params=[name => value, …])`.
 """
 struct NetDevice
     name::String
@@ -70,6 +72,7 @@ devicepins(b::Bipole) = [b.a, b.b]
 devicepins(t::Transistor) = t.kind in (:nmos, :pmos) ? [pin(t, :D), pin(t, :G), pin(t, :S)] :
                                                        [pin(t, :C), pin(t, :B), pin(t, :E)]
 devicepins(o::Opamp) = [pin(o, :inp), pin(o, :inn), pin(o, :out)]
+devicepins(b::Block) = [p.at for p in b.pins]          # in drawing order; see subcktinfo
 
 # ─────────────── values from the drawing ───────────────
 
@@ -148,7 +151,7 @@ iscurrentcontrol(c) = c isa Union{AbstractString,Symbol}
 function nodenames(s::Schematic; rename=Dict())
     renames = Dict{String,String}(lowercase(string(k)) => string(v) for (k, v) in rename)
     rn(n) = get(renames, lowercase(n), n)
-    devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
+    devs = Dict{String,Placed}(t.name => t for t in s.items if t isa PinDevice)
     resolvept(p) = p isa PinRef ? pin(devs[p.device], p.pin) : p
 
     # 1. Segments (wires and shorts) and every point that can carry a connection.
@@ -163,7 +166,7 @@ function nodenames(s::Schematic; rename=Dict())
             end
         elseif it isa Bipole && it.kind == :short
             push!(segs, (it.a, it.b)); push!(pts, it.a, it.b)
-        elseif it isa Union{Bipole,Transistor,Opamp}
+        elseif it isa Device
             append!(pts, devicepins(it))
         elseif it isa Union{Ground,Supply,Port,NodeLabel,Dot}
             push!(pts, it.at)
@@ -224,7 +227,7 @@ function nodenames(s::Schematic; rename=Dict())
     end
 
     for it in s.items                                    # number the unnamed nets
-        it isa Union{Bipole,Transistor,Opamp} || continue
+        it isa Device || continue
         it isa Bipole && it.kind in (:short, :open, :box) && continue
         foreach(netname, devicepins(it))
     end
@@ -292,7 +295,7 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
     # 3. Devices.
     pincount = Dict{Tuple{Int,Int},Int}()
     for it in s.items
-        it isa Union{Bipole,Transistor,Opamp} || continue
+        it isa Device || continue
         it isa Bipole && it.kind in (:short, :open) && continue
         for p in devicepins(it)
             pincount[root(p)] = get(pincount, root(p), 0) + 1
@@ -303,7 +306,7 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
     counters = Dict{Char,Int}()
     missingvalue = String[]
     for it in s.items
-        it isa Union{Bipole,Transistor,Opamp} || continue
+        it isa Device || continue
         if it isa Bipole
             it.kind in (:short, :open) && continue
             if it.kind == :box
@@ -320,6 +323,8 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
             it.kind
         elseif it isa Opamp
             :opamp
+        elseif it isa Block
+            :subckt
         elseif it.kind == :sV
             letter0 == 'I' ? :sI : :sV
         elseif it.kind == :cV
@@ -332,7 +337,7 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
             it.kind
         end
         if raw === nothing                                   # read it from the drawing
-            v = drawnvalue(it.label, it.note, kind in (:D, :nmos, :pmos, :npn, :pnp, :opamp))
+            v = drawnvalue(it.label, it.note, kind in (:D, :nmos, :pmos, :npn, :pnp, :opamp, :subckt))
             v === nothing && kind in (:R, :C, :L, :V, :I, :E, :F, :G, :H) && push!(missingvalue, name)
         end
         if kind in (:E, :F, :G, :H) && controlspec(raw) === nothing
@@ -355,6 +360,19 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
         for (p, nd) in zip(devicepins(it), nodes)
             get(pincount, root(p), 0) == 1 && !haskey(named, root(p)) &&
                 @warn "schematic_netlist: pin of $name at node $nd is not connected to anything"
+        end
+        if kind == :subckt
+            # the note is the subcircuit's name as written (amp_v2 keeps its underscore)
+            drawn = isempty(it.note) ? drawnvalue(it.label, it.note, true) : it.note
+            model, terms, params = subcktinfo(raw === nothing ? drawn : v, drawn)
+            if model === nothing
+                @warn "schematic_netlist: no subcircuit name for $name; draw it as $name/name " *
+                      "or pass elements=Dict(\"$name\" => \"name\")"
+                model = "unknown"
+            end
+            terms === nothing || (nodes = subcktnodes(it, name, nodes, terms))
+            push!(devices, NetDevice(name, kind, nodes, (; model, params)))
+            continue
         end
         push!(devices, NetDevice(name, kind, nodes, raw === nothing ? v : raw))
     end
@@ -401,13 +419,61 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
     SchematicNetlist(devices, sup, sort!(nets), terminals)
 end
 
+# Model name, terminal order (or nothing) and instance parameters of a subcircuit instance,
+# from its value: a subcircuit object (`name` and `terminals` fields, such as a
+# Microelectronics `Subcircuit`), a NamedTuple `(model=…, terminals=…, other parameters)`,
+# the SPICE text of a definition (".subckt amp a b c …"), a vector of terminal names, or a
+# plain model name. `drawn` is the model name written in the drawing.
+function subcktinfo(v, drawn)
+    model, terms, params = drawn, nothing, Pair{String,Any}[]
+    if v isa AbstractString
+        words = split(strip(first(split(v, '\n'))))
+        if !isempty(words) && lowercase(words[1]) == ".subckt" && length(words) >= 2
+            model = String(words[2])
+            terms = String[w for w in Iterators.takewhile(
+                        w -> !occursin('=', w) && lowercase(w) != "params:", words[3:end])]
+        else
+            model = String(v)
+        end
+    elseif v isa NamedTuple
+        model = string(get(v, :model, get(v, :name, something(drawn, ""))))
+        isempty(model) && (model = nothing)
+        haskey(v, :terminals) && (terms = string.(collect(v.terminals)))
+        for (k, x) in pairs(v)
+            k in (:model, :name, :terminals) || push!(params, string(k) => x)
+        end
+    elseif v isa AbstractVector
+        terms = string.(v)
+    elseif v !== nothing && !(v isa Union{Number,Symbol,Tuple}) && hasproperty(v, :terminals)
+        hasproperty(v, :name) && (model = string(getproperty(v, :name)))
+        terms = string.(collect(getproperty(v, :terminals)))
+    end
+    model, terms, params
+end
+
+# A subcircuit instance's nodes in its definition's terminal order, matched by pin name.
+function subcktnodes(b::Block, name, nodes, terms)
+    bynames = Dict(lowercase(p.name) => n for (p, n) in zip(b.pins, nodes))
+    pinnames = join((isempty(p.name) ? "(unnamed)" : p.name for p in b.pins), ", ")
+    for p in b.pins
+        any(t -> lowercase(t) == lowercase(p.name), terms) || throw(ArgumentError(
+            "$name: pin '$(p.name)' is not a terminal of its subcircuit ($(join(terms, ", ")))"))
+    end
+    map(terms) do t
+        haskey(bynames, lowercase(t)) || throw(ArgumentError(
+            "$name: the subcircuit's terminal '$t' isn't drawn (pins: $pinnames)"))
+        bynames[lowercase(t)]
+    end
+end
+
 """
     dc_floating_groups(devices, supplynets) -> (groups, highz)
 
 Nodes with no DC path to ground, grouped by the islands they form, and the set of nodes
 that touch a high-impedance input. Conducting at DC: resistors, inductors, diodes,
 voltage sources (also controlled ones' outputs), a MOSFET's drain–source channel, all
-BJT terminals, and an op-amp output (the library models drive it from ground). Not
+BJT terminals, an op-amp output (the library models drive it from ground) and every pin
+of a subcircuit instance (its insides aren't known here). Not
 conducting: capacitors, current sources, MOSFET gates and op-amp inputs. Supply nets are
 driven by sources to ground.
 """
@@ -439,6 +505,8 @@ function dc_floating_groups(devices::Vector{NetDevice}, supplynets)
             j(n[1], n[2]); j(n[2], n[3])
         elseif k == :opamp
             j(n[3], "0"); push!(highz, n[1], n[2])
+        elseif k == :subckt                  # its insides are unknown: assume each pin is
+            foreach(x -> j(x, "0"), n)       # biased by the subcircuit
         end
     end
     groups = Dict{String,Vector{String}}()
@@ -455,7 +523,8 @@ end
 
 const SPICE_LETTER = Dict(:R => 'R', :C => 'C', :L => 'L', :D => 'D', :V => 'V', :I => 'I',
                           :sV => 'V', :sI => 'I', :E => 'E', :F => 'F', :G => 'G', :H => 'H',
-                          :nmos => 'M', :pmos => 'M', :npn => 'Q', :pnp => 'Q', :opamp => 'X')
+                          :nmos => 'M', :pmos => 'M', :npn => 'Q', :pnp => 'Q', :opamp => 'X',
+                          :subckt => 'X')
 
 # Default models, as in the Microelectronics.jl model library.
 const DEFAULT_MODEL = Dict(:D => "D1N914", :nmos => "ald1105n", :pmos => "ald1105p",
@@ -602,6 +671,9 @@ function spiceline(d::NetDevice)
         return "$nm $nodes $(d.nodes[3]) $model$params"          # body tied to source
     elseif d.kind in (:npn, :pnp)
         return "$nm $nodes $(v isa AbstractString ? v : DEFAULT_MODEL[d.kind])"
+    elseif d.kind == :subckt                                     # value: (model, params)
+        params = join(" $k=$(spicevalue(x))" for (k, x) in d.value.params)
+        return "$nm $nodes $(d.value.model)$params"
     else                                                         # :opamp subcircuit
         return "$nm $nodes $(v isa AbstractString ? v : DEFAULT_MODEL[:opamp])"
     end

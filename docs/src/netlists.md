@@ -84,6 +84,7 @@ and separate nets with the same name are the same SPICE node.
 | H, F (current-controlled) | `(gain, "Vsense")`, or a `CCVS`/`CCCS` object |
 | MOSFET | model name, or NamedTuple `(model=…, W=…, L=…, body=…)`; body tied to source otherwise |
 | BJT, diode, op-amp | model name |
+| subcircuit instance (`Block`) | subcircuit name; or its definition, which also gives the terminal order: a Microelectronics `Subcircuit`, `.subckt` text, or `(model=…, terminals=[…], params…)`; or just the terminal order, `["inp", "inn", "out"]` |
 
 Devices without a value are written as `{name}` parameters (with a warning). Models default
 to the Microelectronics library: `ald1105n`/`ald1105p`, `Q2N3904`/`Q2N3906`, `D1N914`,
@@ -149,3 +150,41 @@ enclosing netlist with `.global vdd! vss!`). The same `rename` and `external` ke
 work on `schematic_netlist`. The repository's `examples/mos_amplifiers.ipynb` builds
 common-source, source-follower, common-gate and differential-pair subcircuits this way,
 and a two-stage amplifier with [`layout`](@ref).
+
+## Subcircuit instances
+
+A box drawn with `[` and `]` in the same two columns on consecutive rows is an instance
+of a subcircuit. A name touching a bracket is a pin, wired to whatever is outside that
+bracket on its row; the other text names the instance and its subcircuit: `X1/amp` is
+instance `X1` of `amp` (`X1` alone or `amp` alone also work).
+
+```@example net
+inst = ascii_schematic("""
+  a----[p                  s]--R1--gnd
+  b----[q X1/my_subcircuit  ]
+       [                   o]--R2--gnd
+"""; elements=Dict("R1" => 1e3, "R2" => 2e3))
+```
+
+```@example net
+print(spice_netlist(inst))
+```
+
+An `X` line lists the nodes in the subcircuit's terminal order. Without a definition that
+is the drawing's: left pins top to bottom, then right pins top to bottom. Given the
+definition, or just its terminal order, the pins are matched by name:
+
+```@example net
+print(spice_netlist(inst; elements=Dict("R1" => 1e3, "R2" => 2e3,
+                                        "X1" => ["o", "s", "q", "p"])))
+```
+
+A Microelectronics `Subcircuit` (from [`to_subcircuit`](@ref), say), the text of
+`spice_subcircuit`, or `(model="amp", terminals=[…], gain=2)` work the same way; other
+NamedTuple fields become instance parameters (`gain=2`). A pin that isn't one of the
+terminals, or a terminal that isn't drawn, is an error. The instance's insides aren't
+known here, so the check for nodes with no DC path takes each pin as biased.
+
+In other drawings, [`Block`](@ref) places a box directly:
+`Block("X2", Pt(2, 0); left=["in"], right=["out", "fb"], model="buf")`, with wires to
+`PinRef("X2", :out)` or `pin(b, :out)`.

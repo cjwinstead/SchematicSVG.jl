@@ -87,12 +87,66 @@ Opamp(name, at; label="", note="", w=0.5, h=0.2, inv_up=false) =
     Opamp(name, at, label, note, w, h, inv_up)
 
 """
+    BlockPin(name, at, side)
+
+A terminal of a [`Block`](@ref): its `name` (shown inside the box; it matches the
+subcircuit's terminal names), its point `at` on the box edge, and the `side` it is on
+(`:left`, `:right`, `:top` or `:bottom`).
+"""
+struct BlockPin
+    name::String
+    at::Pt
+    side::Symbol
+end
+
+"""
+    Block(name, lo, hi, pins; label=name, note="")
+    Block(name, at; left=[], right=[], width=2, pitch=0.8, model="", label=name)
+
+A subcircuit instance: a box from corner `lo` (bottom left) to `hi` (top right) with
+terminals `pins` (a vector of [`BlockPin`](@ref)) on its edges. `name` is the instance
+name (`X1`); `label` is shown in the box with `note` (the subcircuit's name) under it.
+
+The second form builds the box around centre `at` from pin names: `left` and `right`
+top to bottom, `pitch` apart, on a box `width` wide, with `model` as the note. Pins are
+`PinRef`-able by name: `PinRef("X1", :out)`.
+
+In a netlist the block is an `X` line. Its nodes follow the subcircuit's terminal order
+when that is known (see [`schematic_netlist`](@ref)), and otherwise the drawing: left
+pins top to bottom, then right pins top to bottom.
+"""
+struct Block <: Placed
+    name::String
+    lo::Pt
+    hi::Pt
+    pins::Vector{BlockPin}
+    label::String
+    note::String
+end
+Block(name, lo::Pt, hi::Pt, pins; label=name, note="") =
+    Block(name, lo, hi, collect(BlockPin, pins), label, note)
+function Block(name, at::Pt; left=String[], right=String[], width=2, pitch=0.8, model="", label=name)
+    n = max(length(left), length(right), 1)
+    h = n * pitch
+    top = at.y + h / 2
+    y(i) = at.y + ((n + 1) / 2 - i) * pitch          # from the centre: symmetric, exact
+    pins = [[BlockPin(string(p), Pt(at.x - width / 2, y(i)), :left) for (i, p) in enumerate(left)];
+            [BlockPin(string(p), Pt(at.x + width / 2, y(i)), :right) for (i, p) in enumerate(right)]]
+    Block(name, Pt(at.x - width / 2, at.y - h / 2), Pt(at.x + width / 2, top), pins; label, note=model)
+end
+
+# Parts with pins that PinRef can name, and every part that is a device in a netlist.
+const PinDevice = Union{Transistor,Opamp,Block}
+const Device = Union{Bipole,Transistor,Opamp,Block}
+
+"""
     PinRef(device, pin)
 
 A pin of a named transistor or op-amp, used as a `Wire` point: `PinRef("Q1", :C)`,
 `PinRef("M1", :G)`, `PinRef("A1", :out)`. It is resolved when the schematic is drawn or
 netlisted, so wires follow the device wherever it sits. Transistor pins are `:B/:G`,
-`:C/:D` and `:E/:S`; op-amp pins `:inp`, `:inn` and `:out`.
+`:C/:D` and `:E/:S`; op-amp pins `:inp`, `:inn` and `:out`; a `Block`'s pins go by their
+names.
 """
 struct PinRef
     device::String
@@ -254,4 +308,10 @@ function pin(o::Opamp, p::Symbol)
     p == :inp ? o.at + Pt(-o.w, s * o.h) :
     p == :inn ? o.at + Pt(-o.w, -s * o.h) :
     p == :out ? o.at + Pt(o.w, 0) : error("unknown pin $p")
+end
+
+function pin(b::Block, p::Union{Symbol,AbstractString})
+    i = findfirst(q -> lowercase(q.name) == lowercase(string(p)), b.pins)
+    i === nothing && error("$(b.name) has no pin $p (pins: $(join((q.name for q in b.pins), ", ")))")
+    b.pins[i].at
 end

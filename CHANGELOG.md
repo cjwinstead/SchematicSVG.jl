@@ -11,6 +11,12 @@ Changes since v0.7.2.
 
 ### Added
 
+- **Subcircuit instances**: in ASCII drawings a box with `[` and `]` edges, pins named
+  inside it beside the brackets, and the instance and subcircuit names in the middle
+  (`[p X1/amp s]`); the `Block` primitive elsewhere. Netlists write an `X` line with the
+  nodes in the subcircuit's terminal order, taken from a Microelectronics `Subcircuit`,
+  `.subckt` text or a list of terminals given in `elements`, or from the drawing (left
+  pins, then right pins, top to bottom). `to_microelectronics` gives a `Subckt`.
 - **`layout`** combines drawings (ASCII strings or `Schematic`s) in a row or a column.
   Parts join at their terminals with a drawn wire (`connect`) or by name (`share`);
   element and node names used in more than one part get the part number, and supplies

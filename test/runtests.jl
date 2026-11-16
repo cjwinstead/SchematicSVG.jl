@@ -1053,6 +1053,77 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
     end
 end
 
+@testset "subcircuit blocks" begin
+    art = """
+a----[p                  s]--R1--gnd
+b----[q X1/my_subcircuit  ]
+     [                   o]--R2--gnd
+"""
+    vals = Dict("R1" => 1e3, "R2" => 2e3)
+    s = ascii_schematic(art; elements=vals)
+    b = only(filter(x -> x isa Block, s.items))
+    @test (b.name, b.note, b.label) == ("X1", "my_subcircuit", "X_{1}")
+    @test [(p.name, p.side) for p in b.pins] == [("p", :left), ("q", :left), ("s", :right), ("o", :right)]
+    @test pin(b, :q) == b.pins[2].at && pin(b, "S") == b.pins[3].at
+    @test b.lo.y < minimum(p.at.y for p in b.pins) && b.hi.y > maximum(p.at.y for p in b.pins)
+    # nodes in drawing order: left pins top to bottom, then right
+    @test occursin("X1 a b n1 n2 my_subcircuit\n", spice_netlist(s))
+    svg = to_svg(s)
+    @test occursin("<rect", svg) && occursin("my_subcircuit", svg) && occursin(">q</text>", svg)
+
+    # terminal order from the definition: SPICE text, a NamedTuple or a vector
+    order(v) = only(filter(startswith("X1"), split(spice_netlist(s; elements=merge(vals, Dict("X1" => v))), '\n')))
+    @test order(".subckt my_subcircuit o s q p params: g=2\n.ends") == "X1 n2 n1 b a my_subcircuit"
+    @test order((model="other", terminals=["s", "o", "p", "q"], gain=3)) == "X1 n1 n2 a b other gain=3"
+    @test order(["q", "p", "o", "s"]) == "X1 b a n2 n1 my_subcircuit"
+    @test order("amp2") == "X1 a b n1 n2 amp2"
+    @test_throws ArgumentError spice_netlist(s; elements=Dict("X1" => ["p", "q", "s"]))       # o isn't one
+    @test_throws ArgumentError spice_netlist(s; elements=Dict("X1" => ["p", "q", "s", "o", "t"]))  # t not drawn
+    # annotating with a definition shows its name; a list of terminals keeps the drawn one
+    @test only(filter(x -> x isa Block, annotate(s, Dict("X1" => ".subckt amp9 p q s o")).items)).note == "amp9"
+    @test only(filter(x -> x isa Block, annotate(s, Dict("X1" => ["p", "q", "s", "o"])).items)).note == "my_subcircuit"
+
+    # only a model, an unnamed (wired) pin, a named but unwired pin; no instance name
+    s2 = ascii_schematic("""
+  in----[  amp   y]---out
+        [      ref]
+  """)
+    b2 = only(filter(x -> x isa Block, s2.items))
+    @test (b2.name, b2.note) == ("", "amp") && [p.name for p in b2.pins] == ["", "y", "ref"]
+    txt = @test_logs (:warn, r"not connected") match_mode=:any spice_netlist(s2)
+    @test occursin(r"X1 in out n\d+ amp", txt)
+
+    # a missing model name warns; misaligned rows warn; '[' inside a caption is just text
+    @test_logs (:warn, r"no subcircuit name") match_mode=:any schematic_netlist(ascii_schematic("a--[p X3 q]--b"))
+    @test_logs (:warn, r"same column") match_mode=:any ascii_schematic("a--[p X1  q]--b\nc--[r X2 s]--d")
+    cap = ascii_schematic("a--R1--b\n \"[not a box]\"")
+    @test !any(x -> x isa Block, cap.items) && any(x -> x isa Caption && x.text == "[not a box]", cap.items)
+
+    # layout: renamed, moved and joined like any other part
+    stage = """
+in---[a X1/amp_v2  y]---out
+bb---[b             ]
+     [             z]--+
+                       |
+                      gnd
+"""
+    two = layout(stage, stage; connect=[(1, "out") => (2, "in")])
+    @test spice_netlist(two) == "* schematic\nX1_1 in bb_1 out_1 0 amp_v2\nX1_2 out_1 bb_2 out 0 amp_v2\n.end\n"
+    bs = filter(x -> x isa Block, two.items)
+    @test all(b -> b.hi.y - b.lo.y ≈ 3 * 0.8, bs)                   # compacting leaves the box alone
+    @test spice_subcircuit(ascii_schematic(stage); name="pair") ==
+          ".subckt pair in bb out\nX1 in bb out 0 amp_v2\n.ends pair\n"
+
+    # placed directly, with PinRefs
+    blk = Block("X2", Pt(2, 0); left=["in"], right=["out", "fb"], model="buf")
+    @test [p.at for p in blk.pins] == [Pt(1, 0.4), Pt(3, 0.4), Pt(3, -0.4)]
+    s3 = Schematic([blk, Wire(Pt(0, 0.4), PinRef("X2", :in)), Port(Pt(0, 0.4), "vi", :left),
+                    Wire(PinRef("X2", :out), Pt(4, 0.4)), Ground(Pt(4, 0.4)),
+                    Wire(pin(blk, :fb), Pt(3.5, -0.4), Pt(3.5, -1)), Ground(Pt(3.5, -1))])
+    @test spice_netlist(s3) == "* schematic\nX2 vi 0 0 buf\n.end\n"
+    @test_throws ErrorException pin(blk, :nope)
+end
+
 # The Microelectronics.jl extension, when that package is available.
 if Base.find_package("Microelectronics") !== nothing
     include("microelectronics.jl")

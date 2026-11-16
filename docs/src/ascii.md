@@ -41,6 +41,7 @@ circuit units, and other keywords are [`Schematic`](@ref) settings (`xscale`, `b
 | `-\|P1` | PMOS, source on top |
 | `-\|Q1` | npn BJT, collector on top |
 | `OA1` | op-amp: + input wire from above, − input from below, output to the right |
+| `[p X1/amp s]` | subcircuit instance: a box with `[` and `]` in the same columns on consecutive rows ([Subcircuit instances](@ref)) |
 | `Ovgs` `O1` | open circuit with voltage marks: `+`/`−` at its ends and a label from the name (`Ovgs` → ``v_{gs}``, `O1` → none); same markers as V |
 | `gnd` `vdd` `vcc` `vss` `vee` | ground and supply rails |
 | other lowercase words | named terminals (open circle) |

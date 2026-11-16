@@ -25,6 +25,9 @@ function instancename(x::ME.DependentSource)
 end
 
 annotation(s::ME.Source) = s.waveforms
+# a subcircuit definition given for an instance (Dict("X1" => amp)) shows its name
+annotation(x::ME.Subcircuit) = x.name
+valuetext(x::ME.Subcircuit, name) = x.name
 annotation(x::ME.DependentSource) = x.gain
 valuetext(w::AbstractVector{<:ME.Waveform}, name) = join((strip(sprint(print, x)) for x in w), ", ")
 
@@ -110,6 +113,9 @@ function medevice(d::NetDevice)
     elseif k in (:npn, :pnp)
         return ME.Component(; name=nm, species="bjt", prefix="Q", nodes=copy(n),
                             model=v isa AbstractString ? String(v) : DEFAULT_MODEL[k])
+    elseif k == :subckt               # value: (model, params), nodes in terminal order
+        return ME.Subckt(nm, copy(n), String(x.model),
+                         ME.Parameter[ME.Parameter(string(p), val) for (p, val) in x.params])
     else                                                         # :opamp
         return ME.Opamp(nm, n[1], n[2], n[3], v isa AbstractString ? String(v) : DEFAULT_MODEL[:opamp])
     end

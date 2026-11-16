@@ -154,7 +154,7 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
     end
     elems = Dict{String,Set{Int}}()
     for k in 1:np, it in ss[k].items
-        it isa Union{Bipole,Transistor,Opamp} && !isempty(it.name) &&
+        it isa Device && !isempty(it.name) &&
             push!(get!(elems, uppercase(it.name), Set{Int}()), k)
     end
     elemclash = Set(n for (n, ks) in elems if length(ks) > 1)
@@ -162,7 +162,7 @@ function layout(parts...; direction::Symbol=:row, gap::Real=1.5, align=nothing,
 
     # 3. Placement: each part next to the previous one.
     boxes = map(ss) do s
-        devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
+        devs = Dict{String,Placed}(t.name => t for t in s.items if t isa PinDevice)
         pts = reduce(vcat, (anchors(it, devs) for it in s.items); init=Pt[])
         isempty(pts) ? (0.0, 0.0, 0.0, 0.0) :
             (minimum(p.x for p in pts), maximum(p.x for p in pts),
@@ -265,11 +265,13 @@ function relocate(it::T, d::Pt, ename, nname; fy=identity) where {T<:Placed}
             v = mv(v)
         elseif v isa Vector{WirePt}
             v = WirePt[p isa Pt ? mv(p) : PinRef(ename(p.device), p.pin) for p in v]
+        elseif v isa Vector{BlockPin}
+            v = BlockPin[BlockPin(p.name, mv(p.at), p.side) for p in v]
         end
         push!(vals, v)
     end
     x = T(vals...)
-    if x isa Union{Bipole,Transistor,Opamp}
+    if x isa Device
         x = withfields(x; name=ename(x.name))
     elseif x isa Union{Port,NodeLabel}
         new = nname(x.name)
@@ -288,7 +290,7 @@ const MINBAND = 0.8          # a compacted elastic band keeps one ASCII row (cir
 const YTOL = 1e-6
 
 function bands(s::Schematic; keep=())
-    devs = Dict{String,Placed}(t.name => t for t in s.items if t isa Union{Transistor,Opamp})
+    devs = Dict{String,Placed}(t.name => t for t in s.items if t isa PinDevice)
     rp(p) = p isa PinRef ? pin(devs[p.device], p.pin) : p
     # Heights where something sits. A point where a vertical wire only passes through
     # (wire above and below it, nothing else there) doesn't count: ASCII drawings draw a
@@ -323,6 +325,8 @@ function bands(s::Schematic; keep=())
         elseif it isa Opamp
             e = max(it.h, 0.9 * it.w)
             push!(spans, (it.at.y - e, it.at.y + e))
+        elseif it isa Block
+            push!(spans, (it.lo.y, it.hi.y))
         elseif it isa Voltage
             push!(spans, minmax(it.plus.y, it.minus.y))
         elseif it isa Wire
@@ -366,7 +370,7 @@ compacted(s::Schematic; keep=()) =
 # everything else; `nothing` leaves that kind alone. Only that wire and the symbol move.
 function liftsupplies(items::Vector{Placed}, top, bot)
     items = copy(items)
-    devs = Dict{String,Placed}(t.name => t for t in items if t isa Union{Transistor,Opamp})
+    devs = Dict{String,Placed}(t.name => t for t in items if t isa PinDevice)
     rp(p) = p isa PinRef ? pin(devs[p.device], p.pin) : p
     # obstacles: (xmin, xmax, ymin, ymax) of each item, by index
     function boxes(it)
@@ -376,6 +380,7 @@ function liftsupplies(items::Vector{Placed}, top, bot)
         it isa Bipole && return bx(it.a, it.b, 0.3)
         it isa Transistor && return [(it.at.x - it.w, it.at.x + it.w, it.at.y - it.h, it.at.y + it.h)]
         it isa Opamp && return [(it.at.x - it.w, it.at.x + it.w, it.at.y - 0.9 * it.w, it.at.y + 0.9 * it.w)]
+        it isa Block && return [(it.lo.x, it.hi.x, it.lo.y, it.hi.y)]
         it isa Caption && return bx(it.at, it.at, 0.5)
         it isa Union{Ground,Supply,Port,NodeLabel,Dot} && return bx(it.at, it.at, 0.2)
         NTuple{4,Float64}[]

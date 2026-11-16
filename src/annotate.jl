@@ -36,6 +36,7 @@ const ITEM_LETTERS = Dict(:R => "R", :C => "C", :L => "L", :D => "D", :V => "V",
 itemletters(it::Bipole) = get(ITEM_LETTERS, it.kind, "")
 itemletters(it::Transistor) = ITEM_LETTERS[it.kind]
 itemletters(::Opamp) = "X"
+itemletters(::Block) = "X"
 
 "Key of `d` (upper-case names) for item `it`: its drawn name, or the name with its SPICE letter."
 function lookupname(d::AbstractDict, it)
@@ -74,6 +75,10 @@ const UNIT_OF = Dict('R' => "Ω", 'C' => "F", 'L' => "H", 'V' => "V", 'I' => "A"
 
 valuetext(v::Real, name) = si(v, get(UNIT_OF, isempty(name) ? ' ' : uppercase(name[1]), ""))
 valuetext(v, name) = string(v)
+# a subcircuit definition's SPICE text shows its name; a list of terminals shows nothing
+valuetext(v::AbstractString, name) =
+    (w = split(strip(v)); length(w) >= 2 && lowercase(w[1]) == ".subckt" ? String(w[2]) : String(v))
+valuetext(v::AbstractVector{<:AbstractString}, name) = ""
 # Netlist-style values: (gain, control) for dependent sources, NamedTuples of parameters.
 valuetext(v::Tuple, name) = isempty(v) ? "" : valuetext(first(v), name)
 function valuetext(v::NamedTuple, name)
@@ -137,7 +142,8 @@ function annotate(s::Schematic, elements=(); nodes=Dict(), style::Symbol=:below)
         key = lookupname(info, it)
         key === nothing && return (it.label, it.note)
         text = valuetext(info[key], it.name)
-        ismodel = it isa Union{Transistor,Opamp} || (it isa Bipole && it.kind == :D)
+        isempty(text) && return (it.label, it.note)       # nothing to show (e.g. terminals)
+        ismodel = it isa PinDevice || (it isa Bipole && it.kind == :D)
         if style == :below
             return (it.label, text)
         elseif style == :value || isempty(it.label)
@@ -163,6 +169,9 @@ function annotate(s::Schematic, elements=(); nodes=Dict(), style::Symbol=:below)
         elseif it isa Opamp
             l, n = element(it)
             Opamp(it.name, it.at, l, n, it.w, it.h, it.inv_up)
+        elseif it isa Block
+            l, n = element(it)
+            Block(it.name, it.lo, it.hi, it.pins, l, n)
         elseif it isa Port
             Port(it.at, it.name, node(it), it.side)
         elseif it isa NodeLabel

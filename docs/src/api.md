@@ -31,6 +31,8 @@ Dot
 Voltage
 Current
 Caption
+Block
+BlockPin
 ```
 
 ## Annotation functions
