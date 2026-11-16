@@ -1,0 +1,6 @@
+/* Wide schematics shrink to the page width instead of overflowing it. */
+article.content svg,
+article.content img {
+    max-width: 100%;
+    height: auto;
+}
