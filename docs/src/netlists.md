@@ -79,7 +79,7 @@ and separate nets with the same name are the same SPICE node.
 |---|---|
 | R, C, L | number, quantity, `Symbol` (written as a `{param}`), or SPICE text |
 | V, I | number/quantity (DC), a `Waveform` or vector of them, or SPICE text such as `"SIN(0 1 1k)"` |
-| sinusoidal (`sV`) | NamedTuple `(amplitude=…, frequency=…, offset=…)`, or an amplitude |
+| sinusoidal (`sV`) | NamedTuple `(amplitude=…, frequency=…, offset=…, phase=…)`, or an amplitude; a plain-number phase is in degrees |
 | E, G (voltage-controlled) | `(gain, ("ctrl+", "ctrl-"))`, or a `VCVS`/`VCCS` object |
 | H, F (current-controlled) | `(gain, "Vsense")`, or a `CCVS`/`CCCS` object |
 | MOSFET | model name, or NamedTuple `(model=…, W=…, L=…, body=…)`; body tied to source otherwise |

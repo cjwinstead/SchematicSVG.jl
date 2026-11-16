@@ -556,6 +556,10 @@ end
 spicevalue(x::Symbol) = "{$x}"
 spicevalue(x::AbstractString) = String(x)
 spicevalue(x) = string(x)
+
+# A sine source's phase in degrees, as SPICE takes it: a plain number is already in
+# degrees; the Unitful extension converts quantities (`π/2*u"rad"` → 90).
+degrees(x::Real) = x
 # Unitful quantities are handled by package extensions (plain SI numbers, or
 # Microelectronics' qstr when it is loaded), so "20 kΩ" never reaches a netlist.
 
@@ -578,7 +582,10 @@ function spiceline(d::NetDevice)
         v isa AbstractString && return "$nm $nodes $v"
         p = v isa NamedTuple ? v : v === nothing ? NamedTuple() : (amplitude=v,)
         g(k, dflt) = spicevalue(get(p, k, dflt))
-        return "$nm $nodes SIN($(g(:offset, 0)) $(g(:amplitude, 5e-3)) $(g(:frequency, 1000)))"
+        sin = "SIN($(g(:offset, 0)) $(g(:amplitude, 5e-3)) $(g(:frequency, 1000))"
+        ph = get(p, :phase, 0)
+        # SIN(VO VA FREQ TD THETA PHASE): no delay or damping, phase in degrees
+        return iszero(ph) ? "$nm $nodes $sin)" : "$nm $nodes $sin 0 0 $(spicevalue(degrees(ph))))"
     elseif d.kind in (:E, :F, :G, :H)
         gain, ctrl = controlspec(d.value)
         c = iscurrentcontrol(ctrl) ? string(ctrl) : join(string.(collect(ctrl)), " ")

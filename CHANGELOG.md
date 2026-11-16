@@ -66,6 +66,9 @@ Changes since v0.7.2.
 
 ### Fixed
 
+- A sinusoid's `phase` (`(amplitude=…, frequency=…, phase=…)`) was dropped from SPICE text;
+  it is now the sixth `SIN` argument, in degrees (a plain number is taken as degrees,
+  quantities such as `π/2*u"rad"` are converted), and annotations show it ("…, 90°").
 - `schematic_netlist`, `spice_netlist` and `to_microelectronics` give every supply in
   `supplies` its source, also one that isn't drawn: a circuit whose V_DD and V_SS are
   used only inside subcircuits (an op-amp drawn as `OA1`, say) lost them before.

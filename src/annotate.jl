@@ -80,17 +80,21 @@ function valuetext(v::NamedTuple, name)
     for k in (:value, :gain, :model)
         haskey(v, k) && return valuetext(v[k], name)
     end
-    if haskey(v, :amplitude)                      # a sinusoid: amplitude, frequency, offset
+    if haskey(v, :amplitude)                      # a sinusoid: amplitude, frequency, offset, phase
         # numbers get the source's unit (V or A, from the name's letter) and Hz;
         # quantities show their own units
         parts = [valuetext(v.amplitude, name)]
         haskey(v, :frequency) &&
             push!(parts, v.frequency isa Real ? si(v.frequency, "Hz") : valuetext(v.frequency, name))
         haskey(v, :offset) && !iszero(v.offset) && push!(parts, "offset " * valuetext(v.offset, name))
+        haskey(v, :phase) && !iszero(v.phase) && push!(parts, phasetext(degrees(v.phase)))
         return join(parts, ", ")
     end
     ""
 end
+
+# "90°", "-37.5°"
+phasetext(d) = (r = round(d; sigdigits=4); (isinteger(r) ? string(Int(r)) : string(r)) * "°")
 
 # Escape text that will go through `texlabel` so model names like `nmos_lv` survive.
 literal(s) = replace(s, "_" => "\\_")

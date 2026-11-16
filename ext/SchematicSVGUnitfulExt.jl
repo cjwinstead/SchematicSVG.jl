@@ -4,9 +4,10 @@
 # (A comment, not a docstring: a docstring on an extension module can fail to load.)
 module SchematicSVGUnitfulExt
 
-import SchematicSVG: spicevalue
-using Unitful: AbstractQuantity, ustrip, upreferred
+import SchematicSVG: spicevalue, degrees
+using Unitful: AbstractQuantity, ustrip, upreferred, °
 
 spicevalue(q::AbstractQuantity) = spicevalue(Float64(ustrip(upreferred(q))))
+degrees(q::AbstractQuantity) = Float64(ustrip(°, q))
 
 end # module

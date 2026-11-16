@@ -1037,6 +1037,15 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test g == "G1 a 0 x 0 0.002"
         s1 = SchematicSVG.spiceline(NetDevice("V1", :sV, ["a", "0"], (amplitude=10u"mV", frequency=1u"kHz")))
         @test s1 == "V1 a 0 SIN(0 0.01 1000)"
+        # phase: the sixth SIN argument, in degrees (after zero delay and damping)
+        s2 = SchematicSVG.spiceline(NetDevice("V1", :sV, ["a", "0"], (amplitude=10u"mV", frequency=1u"kHz", phase=90u"°")))
+        @test s2 == "V1 a 0 SIN(0 0.01 1000 0 0 90)"
+        s3 = SchematicSVG.spiceline(NetDevice("V1", :sV, ["a", "0"], (amplitude=1, frequency=50, phase=π/2*u"rad")))
+        @test s3 == "V1 a 0 SIN(0 1 50 0 0 90)"
+        @test SchematicSVG.spiceline(NetDevice("V1", :sV, ["a", "0"], (amplitude=1, phase=-30))) ==
+              "V1 a 0 SIN(0 1 1000 0 0 -30)"
+        @test SchematicSVG.valuetext((amplitude=10u"mV", frequency=1u"kHz", phase=90u"°"), "Vsig") |>
+              t -> endswith(t, ", 90°")
         @test SchematicSVG.paramtext("Rx" => 4.7u"kΩ") == "Rx=4700"
     end
 end
