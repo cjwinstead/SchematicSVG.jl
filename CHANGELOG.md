@@ -66,6 +66,9 @@ Changes since v0.7.2.
 
 ### Fixed
 
+- `schematic_netlist`, `spice_netlist` and `to_microelectronics` give every supply in
+  `supplies` its source, also one that isn't drawn: a circuit whose V_DD and V_SS are
+  used only inside subcircuits (an op-amp drawn as `OA1`, say) lost them before.
 - SPICE text no longer contains Unitful's unit strings (such as `4.7 kΩ`), which SPICE
   can't read: quantities are written as plain numbers, by Microelectronics' `qstr` when
   it is loaded and otherwise by a small Unitful extension.

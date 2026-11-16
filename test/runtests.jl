@@ -328,6 +328,14 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
         @test occursin("MP1 out in vdd vdd ald1105p\n", txt)                       # body = source
         @test occursin("MN1 out in 0 0 ald1105n\n", txt)
         @test occursin("CL out 0 1.0e-12\n", txt) && occursin("V1 in 0 DC 0\n", txt)
+        # supplies given but not drawn (used only inside subcircuits) still get sources
+        n2 = schematic_netlist(ascii_schematic(cmos); elements=Dict("V1" => 0, "CL" => 1e-12),
+                               supplies=Dict("vdd" => 5, "vss" => -5))
+        @test n2.supplies == ["vdd" => 5, "vss" => -5]
+        @test occursin("VSS vss 0 DC -5\n", sprint(print, n2))
+        n3 = schematic_netlist(ascii_schematic("in---R1---out"); elements=Dict("R1" => 1e3),
+                               supplies=Dict("VDD" => 3, "vss" => -3), external=["in", "out", "vss"])
+        @test n3.supplies == ["vdd" => 3]                  # external ones still left out
         sp = spice_netlist(ascii_schematic(cmos); title="inv", include="lib.sp",
                            elements=Dict("V1" => 0, "CL" => 1e-12), supplies=Dict("vdd" => 5))
         @test startswith(sp, "* inv\n.include lib.sp\n") && endswith(sp, ".end\n")

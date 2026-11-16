@@ -243,7 +243,8 @@ collection of element objects or a `name => value` dictionary, as for
 [`annotate`](@ref)), then in the elements the schematic was annotated with, and finally
 read from the drawing's text. For dependent sources give `(gain, control)`: a pair of
 node names for E/G sources, a voltage-source name for H/F sources. `supplies` gives the
-voltage of each supply net, e.g. `Dict("vdd" => 5)`.
+voltage of each supply net, e.g. `Dict("vdd" => 5)`. Every supply given gets its source,
+also one not drawn in `s`, so that subcircuits used in the circuit can rely on it.
 
 `rename` maps drawn node names to netlist names, e.g. `Dict("vdd" => "vdd!")` for global
 nodes. `external` lists nodes connected outside the drawing (subcircuit terminals, global
@@ -381,6 +382,14 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
     supplyvals = Dict(lowercase(string(k)) => v for (k, v) in supplies)
     sup = Pair{String,Any}[rn(n) => get(supplyvals, n, get(supplyvals, lowercase(rn(n)), nothing))
                            for n in supplynets if !(n in externals)]
+    # Supplies given but not drawn still get their sources: subcircuits in the netlist
+    # (or global nodes) may use them.
+    drawnsup = Set(lowercase.(first.(sup)))
+    for k in sort!(collect(keys(supplyvals)))
+        net = rn(k)
+        lowercase(net) in drawnsup || k in externals || lowercase(net) in externals ||
+            push!(sup, net => supplyvals[k])
+    end
     nosource = [n for (n, v) in sup if v === nothing]
     isempty(nosource) ||
         @warn "schematic_netlist: no voltage for supply $(join(nosource, ", ")); pass supplies=Dict(\"$(first(nosource))\" => …)"
