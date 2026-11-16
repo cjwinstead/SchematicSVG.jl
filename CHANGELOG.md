@@ -66,6 +66,8 @@ Changes since v0.7.2.
 
 ### Fixed
 
+- `to_subcircuit` and `spice_subcircuit` no longer warn that the drawing has no ground
+  symbol: a subcircuit connects through its terminals and often has none.
 - A sinusoid's `phase` (`(amplitude=…, frequency=…, phase=…)`) was dropped from SPICE text;
   it is now the sixth `SIN` argument, in degrees (a plain number is taken as degrees,
   quantities such as `π/2*u"rad"` are converted), and annotations show it ("…, 90°").

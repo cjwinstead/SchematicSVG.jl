@@ -484,6 +484,9 @@ bipoles(s::Schematic) = filter(x -> x isa Bipole, s.items)
             [NetDevice("R1", :R, ["a", "b"], 1), NetDevice("C1", :C, ["b", "0"], 1)], String[])
         @test g == [["a", "b"]]
         @test_logs (:warn, r"no ground symbol") schematic_netlist(ascii_schematic("  a--R1--b"); elements=Dict("R1" => 1))
+        # subcircuits needn't have a ground
+        @test_logs spice_subcircuit(ascii_schematic("  a--R1--b"); name="r", terminals=["a", "b"],
+                                    elements=Dict("R1" => 1))
     end
 
     @testset "subcircuits" begin

@@ -251,10 +251,13 @@ nodes. `external` lists nodes connected outside the drawing (subcircuit terminal
 supplies): they count as driven for the DC check and need no supply voltage. The symbol
 `:terminals` in `external` stands for every drawn terminal (see `SchematicNetlist`).
 
-Warns about devices without a value, unconnected pins, nodes with conflicting names, and
-nodes with no DC path to ground.
+Warns about devices without a value, unconnected pins, nodes with conflicting names,
+nodes with no DC path to ground, and a missing ground symbol (not with
+`subcircuit=true`, which `spice_subcircuit` and `to_subcircuit` use: a subcircuit
+connects through its terminals and often has no ground).
 """
-function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=(), rename=Dict())
+function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=(), rename=Dict(),
+                           subcircuit=false)
     g = nodenames(s; rename)
     rn, root, named, supplynets, netname, auto = g.rn, g.root, g.named, g.supplynets, g.netname, g.auto
     externals = Set{String}()
@@ -360,7 +363,8 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
 
     # 4. Nodes SPICE can't solve at DC.
     autonames = Set([rn(x) for x in values(auto)])
-    if !isempty(devices) && !any(it -> it isa Ground, s.items)
+    # (a subcircuit needn't have a ground: it connects through its terminals)
+    if !subcircuit && !isempty(devices) && !any(it -> it isa Ground, s.items)
         @warn "schematic_netlist: the schematic has no ground symbol; SPICE needs a node 0 (draw a gnd)"
     else
         driven = unique!(vcat(rn.(supplynets),
@@ -674,14 +678,15 @@ end
 # must be a node of the drawing.
 function subcircuit_netlist(s::Schematic, terminals; rename=Dict(), elements=())
     if terminals === nothing
-        n = schematic_netlist(s; elements, rename, external=vcat(Any[:terminals], supplynames(s)))
+        n = schematic_netlist(s; elements, rename, external=vcat(Any[:terminals], supplynames(s)),
+                              subcircuit=true)
         isempty(n.terminals) && throw(ArgumentError(
             "the drawing has no named terminals (open circles such as `in` or `out`); " *
             "draw them or pass terminals=[…]"))
         return n, n.terminals
     end
     ext = vcat([string(t) for t in terminals], supplynames(s))
-    n = schematic_netlist(s; elements, rename, external=ext)
+    n = schematic_netlist(s; elements, rename, external=ext, subcircuit=true)
     renames = Dict(lowercase(string(k)) => string(v) for (k, v) in rename)
     terms = [get(renames, lowercase(string(t)), string(t)) for t in terminals]
     for (t, tn) in zip(terminals, terms)
