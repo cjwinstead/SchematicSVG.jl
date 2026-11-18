@@ -686,8 +686,9 @@ function spiceline(d::NetDevice)
         return "$nm $nodes $(v isa AbstractString ? v : DEFAULT_MODEL[:D])"
     elseif d.kind in (:nmos, :pmos)
         model = v isa AbstractString ? v : v isa NamedTuple && haskey(v, :model) ? v.model : DEFAULT_MODEL[d.kind]
-        params = v isa NamedTuple ? join([" $(uppercase(string(k)))=$(spicevalue(x))" for (k, x) in pairs(v) if k != :model]) : ""
-        return "$nm $nodes $(d.nodes[3]) $model$params"          # body tied to source
+        params = v isa NamedTuple ? join([" $(uppercase(string(k)))=$(spicevalue(x))" for (k, x) in pairs(v) if !(k in (:model, :body))]) : ""
+        body = v isa NamedTuple && haskey(v, :body) ? string(v.body) : d.nodes[3]   # else tied to the source
+        return "$nm $nodes $body $model$params"
     elseif d.kind in (:npn, :pnp)
         return "$nm $nodes $(v isa AbstractString ? v : DEFAULT_MODEL[d.kind])"
     elseif d.kind == :subckt                                     # value: (model, params)

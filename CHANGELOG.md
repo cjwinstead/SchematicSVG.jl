@@ -20,6 +20,8 @@ Changes since v0.7.2.
   junctions this draws crossbar decoders. Gate words are recognized before the
   first-letter kinds, so `NOR1`, `INV1` and `OR1` are now gates rather than an NMOS, a
   current source and an open circuit.
+- MOSFET values may give the body node, `(model=…, body="0")`, in SPICE text as well as
+  in `to_microelectronics` (it was written as a `BODY=` parameter).
 - **Subcircuit instances**: in ASCII drawings a box with `[` and `]` edges, pins named
   inside it beside the brackets, and the instance and subcircuit names in the middle
   (`[p X1/amp s]`); the `Block` primitive elsewhere. Netlists write an `X` line with the

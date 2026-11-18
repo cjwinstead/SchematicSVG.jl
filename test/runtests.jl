@@ -1189,6 +1189,16 @@ end
     s4 = ascii_schematic("a---INV1---y"; elements=Dict("INV1" => (model="inv", Wp="6u")))
     @test spice_netlist(s4) == "* schematic\nXINV1 a y inv Wp=6u\n.end\n"
 
+    # a MOSFET's body from elements (tied to the source otherwise)
+    sw = ascii_schematic("""
+          bl
+          |
+   wl---|N1
+          |
+          sn
+    """; elements=Dict("N1" => (model="ami06N", W=1.2e-6, body="0")))
+    @test spice_netlist(sw) == "* schematic\nMN1 bl wl sn 0 ami06N W=1.2e-6\n.end\n"
+
     # layout carries gates through
     two = layout("a---INV1---y", "a---INV1---y"; connect=[(1, "y") => (2, "a")])
     @test spice_netlist(two) == "* schematic\nXINV1_1 a y_1 inv\nXINV1_2 y_1 y inv\n.end\n"
