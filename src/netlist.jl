@@ -73,6 +73,7 @@ devicepins(t::Transistor) = t.kind in (:nmos, :pmos) ? [pin(t, :D), pin(t, :G), 
                                                        [pin(t, :C), pin(t, :B), pin(t, :E)]
 devicepins(o::Opamp) = [pin(o, :inp), pin(o, :inn), pin(o, :out)]
 devicepins(b::Block) = [p.at for p in b.pins]          # in drawing order; see subcktinfo
+devicepins(g::Gate) = [pin(g, p) for p in gatepinnames(g)]
 
 # ─────────────── values from the drawing ───────────────
 
@@ -323,7 +324,7 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
             it.kind
         elseif it isa Opamp
             :opamp
-        elseif it isa Block
+        elseif it isa Union{Block,Gate}
             :subckt
         elseif it.kind == :sV
             letter0 == 'I' ? :sI : :sV
@@ -363,7 +364,8 @@ function schematic_netlist(s::Schematic; elements=(), supplies=Dict(), external=
         end
         if kind == :subckt
             # the note is the subcircuit's name as written (amp_v2 keeps its underscore)
-            drawn = isempty(it.note) ? drawnvalue(it.label, it.note, true) : it.note
+            drawn = !isempty(it.note) ? it.note :
+                    it isa Gate ? defaultgatemodel(it) : drawnvalue(it.label, it.note, true)
             model, terms, params = subcktinfo(raw === nothing ? drawn : v, drawn)
             if model === nothing
                 @warn "schematic_netlist: no subcircuit name for $name; draw it as $name/name " *
@@ -449,6 +451,23 @@ function subcktinfo(v, drawn)
         terms = string.(collect(getproperty(v, :terminals)))
     end
     model, terms, params
+end
+
+"Default subcircuit of a gate: `inv`, `buf`, `tg`, or the kind and input count (`nand2`)."
+defaultgatemodel(g::Gate) = g.kind in (:inv, :buf, :tg) ? string(g.kind) : string(g.kind, g.n)
+
+# A gate's nodes in its subcircuit's terminal order: matched by pin name when the
+# terminals carry the gate's pin names (in, a, b, …, out; a, b, ng, pg), and otherwise
+# taken in order (inputs top to bottom, then the output).
+function subcktnodes(g::Gate, name, nodes, terms)
+    names = gatepinnames(g)
+    length(terms) == length(names) || throw(ArgumentError(
+        "$name: its subcircuit has $(length(terms)) terminals ($(join(terms, ", "))); " *
+        "the $(g.kind) gate has $(length(names)) ($(join(names, ", ")))"))
+    lt = lowercase.(terms)
+    sort(lt) == sort(names) || return nodes
+    bynames = Dict(zip(names, nodes))
+    [bynames[t] for t in lt]
 end
 
 # A subcircuit instance's nodes in its definition's terminal order, matched by pin name.

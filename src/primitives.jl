@@ -135,9 +135,61 @@ function Block(name, at::Pt; left=String[], right=String[], width=2, pitch=0.8, 
     Block(name, Pt(at.x - width / 2, at.y - h / 2), Pt(at.x + width / 2, top), pins; label, note=model)
 end
 
+"""
+    Gate(kind, name, at; n=2, label="", note="", w=0.5, pitch=…)
+
+A logic gate drawn with its IEEE (distinctive-shape) symbol, centred at `at`. `kind` is
+`:inv`, `:buf`, `:and`, `:nand`, `:or`, `:nor`, `:xor`, `:xnor` or `:tg` (a CMOS
+transmission gate). Inverting gates get an output bubble.
+
+Pins (usable in `PinRef`), in netlist order:
+- `:inv`/`:buf`: `:in` at `at - (w, 0)`, `:out` at `at + (w, 0)`;
+- the others: `n` inputs `:a`, `:b`, `:c`, … on the left, top to bottom, `pitch` apart
+  (0.4 for two inputs, 0.3 for more), then `:out`;
+- `:tg`: `:a` on the left, `:b` on the right, `:ng` (the NMOS gate) below and `:pg` (the
+  PMOS gate, drawn with a bubble) above, 0.4 from the centre.
+
+In a netlist a gate is a subcircuit instance (an `X` line) of a transistor-level gate:
+`inv`, `buf`, `tg` or the kind and input count (`nand2`, `nor3`, …) unless `elements`
+names another subcircuit. Those subcircuits are not built in: define them in the
+netlist (`.subckt nand2 a b out` …).
+"""
+struct Gate <: Placed
+    kind::Symbol
+    name::String
+    at::Pt
+    n::Int
+    label::String
+    note::String
+    w::Float64
+    pitch::Float64
+end
+const GATE_KINDS = (:inv, :buf, :and, :nand, :or, :nor, :xor, :xnor, :tg)
+function Gate(kind::Symbol, name, at::Pt; n::Integer=kind in (:inv, :buf) ? 1 : 2, label="",
+              note="", w=0.5, pitch=n <= 2 ? 0.4 : 0.3)
+    kind in GATE_KINDS || throw(ArgumentError("unknown gate kind :$kind (one of $(join(GATE_KINDS, ", ")))"))
+    kind in (:inv, :buf, :tg) && (n = 1)
+    n >= 1 || throw(ArgumentError("a gate needs at least one input"))
+    Gate(kind, String(name), at, Int(n), String(label), String(note), Float64(w), Float64(pitch))
+end
+
+"Gates whose output is inverted (drawn with a bubble)."
+isinverting(g::Gate) = g.kind in (:inv, :nand, :nor, :xnor)
+
+# Half-height of the gate body, in circuit units.
+gatehalf(g::Gate) = g.kind in (:inv, :buf) ? 0.3 : g.kind == :tg ? 0.35 :
+                    max(0.4, (g.n - 1) * g.pitch / 2 + 0.15)
+
+"Pin names of a gate, in netlist (terminal) order."
+function gatepinnames(g::Gate)
+    g.kind in (:inv, :buf) && return ["in", "out"]
+    g.kind == :tg && return ["a", "b", "ng", "pg"]
+    [[string(Char('a' + i - 1)) for i in 1:g.n]; "out"]
+end
+
 # Parts with pins that PinRef can name, and every part that is a device in a netlist.
-const PinDevice = Union{Transistor,Opamp,Block}
-const Device = Union{Bipole,Transistor,Opamp,Block}
+const PinDevice = Union{Transistor,Opamp,Block,Gate}
+const Device = Union{Bipole,Transistor,Opamp,Block,Gate}
 
 """
     PinRef(device, pin)
@@ -146,7 +198,8 @@ A pin of a named transistor or op-amp, used as a `Wire` point: `PinRef("Q1", :C)
 `PinRef("M1", :G)`, `PinRef("A1", :out)`. It is resolved when the schematic is drawn or
 netlisted, so wires follow the device wherever it sits. Transistor pins are `:B/:G`,
 `:C/:D` and `:E/:S`; op-amp pins `:inp`, `:inn` and `:out`; a `Block`'s pins go by their
-names.
+names; a `Gate`'s are `:a`, `:b`, … and `:out` (`:in`/`:out`; `:a`, `:b`, `:ng`, `:pg`
+for a transmission gate).
 """
 struct PinRef
     device::String
@@ -308,6 +361,24 @@ function pin(o::Opamp, p::Symbol)
     p == :inp ? o.at + Pt(-o.w, s * o.h) :
     p == :inn ? o.at + Pt(-o.w, -s * o.h) :
     p == :out ? o.at + Pt(o.w, 0) : error("unknown pin $p")
+end
+
+function pin(g::Gate, p::Union{Symbol,AbstractString})
+    q = lowercase(string(p))
+    if g.kind == :tg
+        q == "a" && return g.at - Pt(g.w, 0)
+        q == "b" && return g.at + Pt(g.w, 0)
+        q == "pg" && return g.at + Pt(0, 0.4)
+        q == "ng" && return g.at - Pt(0, 0.4)
+    else
+        q == "out" && return g.at + Pt(g.w, 0)
+        names = gatepinnames(g)
+        i = findfirst(==(q), names)
+        if i !== nothing && i <= g.n
+            return g.at + Pt(-g.w, ((g.n + 1) / 2 - i) * g.pitch)
+        end
+    end
+    error("gate $(g.name) has no pin $p (pins: $(join(gatepinnames(g), ", ")))")
 end
 
 function pin(b::Block, p::Union{Symbol,AbstractString})

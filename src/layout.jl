@@ -327,6 +327,9 @@ function bands(s::Schematic; keep=())
             push!(spans, (it.at.y - e, it.at.y + e))
         elseif it isa Block
             push!(spans, (it.lo.y, it.hi.y))
+        elseif it isa Gate
+            e = it.kind == :tg ? 0.4 : max(gatehalf(it), (it.n - 1) * it.pitch / 2)
+            push!(spans, (it.at.y - e, it.at.y + e))
         elseif it isa Voltage
             push!(spans, minmax(it.plus.y, it.minus.y))
         elseif it isa Wire
@@ -381,6 +384,7 @@ function liftsupplies(items::Vector{Placed}, top, bot)
         it isa Transistor && return [(it.at.x - it.w, it.at.x + it.w, it.at.y - it.h, it.at.y + it.h)]
         it isa Opamp && return [(it.at.x - it.w, it.at.x + it.w, it.at.y - 0.9 * it.w, it.at.y + 0.9 * it.w)]
         it isa Block && return [(it.lo.x, it.hi.x, it.lo.y, it.hi.y)]
+        it isa Gate && return [(it.at.x - it.w, it.at.x + it.w, it.at.y - gatehalf(it), it.at.y + gatehalf(it))]
         it isa Caption && return bx(it.at, it.at, 0.5)
         it isa Union{Ground,Supply,Port,NodeLabel,Dot} && return bx(it.at, it.at, 0.2)
         NTuple{4,Float64}[]

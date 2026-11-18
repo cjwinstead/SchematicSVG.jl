@@ -11,6 +11,15 @@ Changes since v0.7.2.
 
 ### Added
 
+- **Logic gates**: IEEE symbols for `INV`, `BUF`, `AND`, `NAND`, `OR`, `NOR`, `XOR`,
+  `XNOR` (any number of inputs) and the CMOS transmission gate `TG`, as the `Gate`
+  primitive and as ASCII words (`NAND1`, `TG1`, …) whose inputs come from the wires
+  above, to the left of and below the word. Netlists write them as `X` instances of
+  transistor-level subcircuits (`inv`, `nand2`, `tg`, … by default, or as set through
+  `elements`); `to_microelectronics` gives `Subckt`s. With `)` crossings and `*`
+  junctions this draws crossbar decoders. Gate words are recognized before the
+  first-letter kinds, so `NOR1`, `INV1` and `OR1` are now gates rather than an NMOS, a
+  current source and an open circuit.
 - **Subcircuit instances**: in ASCII drawings a box with `[` and `]` edges, pins named
   inside it beside the brackets, and the instance and subcircuit names in the middle
   (`[p X1/amp s]`); the `Block` primitive elsewhere. Netlists write an `X` line with the

@@ -17,6 +17,14 @@
 #   -|N1  -|P1       MOSFET, gate bar on the left (N1|- mirrors it). N: drain on top;
 #                    P: source on top. -|Q1 is an npn BJT (collector on top).
 #   OA1              op-amp: + input wire from above, − from below, output to the right
+#   INV1 BUF1 AND1 NAND1 OR1 NOR1 XOR1 XNOR1
+#                    logic gate (IEEE symbol): up to three inputs, from the wires above,
+#                    to the left of and below the word (inputs a, b, c in that order; INV
+#                    and BUF take one), output to the right. Netlisted as X instances of
+#                    inv, buf, nand2, nor3, … (define those subcircuits, or set them
+#                    through `elements`).
+#   TG1              CMOS transmission gate: a on the left, b on the right, the PMOS gate
+#                    pg (drawn with a bubble) from above, the NMOS gate ng from below
 #   gnd vdd vcc vss vee   ground and supply rails
 #   any other lowercase word   a named terminal (open circle with the name)
 #   @name            node tag (italic name, no circle). Inline in a wire (--@vx--) it
@@ -43,6 +51,10 @@ const POLAR = (:D, :V, :I, :sV, :sI, :cV, :cI, :open)
 const SWITCHES = (:nmos, :pmos, :npn)
 const WIRECH = ('-', '|', '+', '*', ')')
 
+# Logic gate words: INV1, NAND2, TG1, … (checked before the first-letter kinds: NOR1 is
+# not an NMOS, INV1 not a current source).
+const GATE_RE = r"^(XNOR|NAND|INV|BUF|AND|NOR|XOR|OR|TG)(\d\w*)?$"
+
 function kindof(n::AbstractString)
     if islowercase(n[1])
         n == "gnd" && return :gnd
@@ -50,6 +62,7 @@ function kindof(n::AbstractString)
         n in ("vss", "vee") && return :vss
         return :port
     end
+    occursin(GATE_RE, n) && return :gate
     startswith(n, "OA") && return :opamp
     # sinusoidal sources: "SVsig" is the voltage source Vsig, "SIb" the current source Ib
     length(n) >= 2 && n[1] == 'S' && n[2] in ('V', 'I') && return n[2] == 'V' ? :sV : :sI
@@ -446,6 +459,57 @@ function ascii_schematic(art::AbstractString; elements=(), nodes=Dict(), style::
             end
             if iswire(r, t.s1 + 1)
                 push!(items, Wire(O + Pt(0.5, 0), P(r, t.s1 + 1))); bump!(r, t.s1 + 1)
+            end
+
+        elseif k == :gate
+            gk = Symbol(lowercase(match(GATE_RE, t.name)[1]))
+            lab = get(labels, t.name, "")
+            if gk == :tg
+                ca, cb = above(t), below(t)
+                y = P(r, t.c0).y
+                xc = ca === nothing && cb === nothing ? (P(r, t.c0).x + P(r, t.c1).x) / 2 :
+                     P(r, something(ca, cb)).x
+                gt = Gate(:tg, t.name, Pt(xc, y); label=lab)
+                push!(items, gt)
+                if iswire(r, t.s0 - 1)
+                    push!(items, Wire(P(r, t.s0 - 1), pin(gt, :a))); bump!(r, t.s0 - 1)
+                end
+                if iswire(r, t.s1 + 1)
+                    push!(items, Wire(pin(gt, :b), P(r, t.s1 + 1))); bump!(r, t.s1 + 1)
+                end
+                ca === nothing || (push!(items, lpath(pin(gt, :pg), P(r - 1, ca))); bump!(r - 1, ca))
+                cb === nothing || (push!(items, lpath(pin(gt, :ng), P(r + 1, cb))); bump!(r + 1, cb))
+                continue
+            end
+            srcs = Tuple{Int,Int}[]
+            (ca = above(t)) === nothing || push!(srcs, (r - 1, ca))
+            iswire(r, t.s0 - 1) && push!(srcs, (r, t.s0 - 1))
+            (cb = below(t)) === nothing || push!(srcs, (r + 1, cb))
+            if isempty(srcs)
+                @warn "gate $(t.name) has no input wires (above, left or below); skipped"
+                continue
+            end
+            if gk in (:inv, :buf) && length(srcs) > 1
+                @warn "gate $(t.name) takes one input but has $(length(srcs)) wires; using the first"
+                srcs = srcs[1:1]
+            end
+            xin = maximum(P(r, c).x for (rr, c) in srcs if rr != r; init=P(r, t.c0).x) + 0.1
+            gt = Gate(gk, t.name, Pt(xin + 0.5, P(r, t.c0).y); n=length(srcs), label=lab)
+            push!(items, gt)
+            for (i, (rr, c)) in enumerate(srcs)
+                q, a = pin(gt, gatepinnames(gt)[i]), P(rr, c)
+                if rr != r                                   # from above or below
+                    push!(items, Wire(a, Pt(a.x, q.y), q))
+                elseif isapprox(a.y, q.y; atol=1e-9)         # from the left, level
+                    push!(items, Wire(a, q))
+                else                                         # from the left, with a jog
+                    xm = (a.x + q.x) / 2
+                    push!(items, Wire(a, Pt(xm, a.y), Pt(xm, q.y), q))
+                end
+                bump!(rr, c)
+            end
+            if iswire(r, t.s1 + 1)
+                push!(items, Wire(pin(gt, :out), P(r, t.s1 + 1))); bump!(r, t.s1 + 1)
             end
 
         elseif k == :caption

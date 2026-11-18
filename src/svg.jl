@@ -202,6 +202,16 @@ function texts(s::Schematic, o::Opamp)
     out
 end
 
+# A gate: its label above the body and its note below.
+function texts(s::Schematic, g::Gate)
+    C = px(s, g.at)
+    H = s.scale * (gatehalf(g) + (g.kind == :tg ? 0.2 : 0.0))
+    out = TextBox[]
+    isempty(g.label) || push!(out, TextBox(C + Pt(0, -H - 5), "middle", "auto", texlabel(g.label), :label))
+    isempty(g.note)  || push!(out, TextBox(C + Pt(0, H + 14), "middle", "auto", notetext(g.note), :note))
+    out
+end
+
 # A block: pin names inside the box beside each pin, the label and note in the middle.
 function texts(s::Schematic, b::Block)
     out = TextBox[]
@@ -473,6 +483,34 @@ function pinpx(s::Schematic, o::Opamp, p::Symbol)
     p == :out ? C + Pt(k * xo, 0) : C + Pt(-k * xi, up ? -k * yi : k * yi)
 end
 
+# Gate geometry (px). The body keeps its size whatever xscale/yscale do: it is centred on
+# the gate, and the input leads (or, for a transmission gate, the a/b leads) run from the
+# pins to it. Pins squeezed inside the body by xscale < 1 are drawn just outside it.
+const GATE_BUBBLE = 4.0                     # bubble radius, px
+function gategeom(s::Schematic, g::Gate)
+    C = px(s, g.at)
+    k = s.scale
+    H = k * gatehalf(g)
+    half = k * (g.kind == :tg ? 0.3 : g.w - 0.12)   # half the body width, bubble included
+    bub = isinverting(g) ? 2GATE_BUBBLE : 0.0
+    x0 = C.x - half                          # body back
+    x1 = C.x + half - bub                    # body front (tip)
+    C, H, x0, x1
+end
+
+function gatepinpx(s::Schematic, g::Gate, p::String)
+    C, H, x0, x1 = gategeom(s, g)
+    q = px(s, pin(g, p))
+    if g.kind == :tg
+        p == "a"  && return Pt(min(q.x, x0 - 4), q.y)
+        p == "b"  && return Pt(max(q.x, x1 + 4), q.y)
+        p == "pg" && return Pt(q.x, min(q.y, C.y - H / 2 - 2GATE_BUBBLE - 4))
+        return Pt(q.x, max(q.y, C.y + H / 2 + 4))
+    end
+    p == "out" && return Pt(max(q.x, x1 + (isinverting(g) ? 2GATE_BUBBLE : 0.0) + 4), q.y)
+    Pt(min(q.x, x0 - 4), q.y)
+end
+
 # Where each device pin (circuit units) is drawn (px).
 function pinmap(s::Schematic)
     m = Dict{Pt,Pt}()
@@ -482,6 +520,9 @@ function pinmap(s::Schematic)
         end
         it isa Opamp && for p in (:inp, :inn, :out)
             m[pin(it, p)] = pinpx(s, it, p)
+        end
+        it isa Gate && for p in gatepinnames(it)
+            m[pin(it, p)] = gatepinpx(s, it, p)
         end
     end
     m
@@ -508,6 +549,70 @@ function render(io, s::Schematic, o::Opamp, _)
               "<polygon points=\"-18,-22 -18,22 22,0\"/>",
               "<path d=\"M$(f(-xi)),$(f(-y)) H-18 M$(f(-xi)),$(f(y)) H-18 M22,0 H$(f(xo)) ",
               "M$(f(-12 - a)),$(f(p)) h$(f(2a)) M-12,$(f(p - a)) v$(f(2a)) M$(f(-12 - a)),$(f(m)) h$(f(2a))\"/></g>")
+end
+
+# x of the back curve of an OR-type body (a quadratic from (x0, y0-H) to (x0, y0+H)
+# bulging d to the right) at height y.
+function orback(x0, y0, H, d, y)
+    t = clamp((y - (y0 - H)) / (2H), 0, 1)
+    x0 + 2t * (1 - t) * d
+end
+
+function render(io, s::Schematic, g::Gate, _)
+    C, H, x0, x1 = gategeom(s, g)
+    y0 = C.y
+    bw = x1 - x0
+    d = 0.25 * bw                                   # OR back-curve control offset
+    P(x, y) = "$(f(x)),$(f(y))"
+    path = IOBuffer()
+    if g.kind == :tg
+        a, b = gatepinpx(s, g, "a"), gatepinpx(s, g, "b")
+        pg, ng = gatepinpx(s, g, "pg"), gatepinpx(s, g, "ng")
+        xm = (x0 + x1) / 2
+        r = GATE_BUBBLE
+        print(io, "<polygon points=\"", P(x0, y0 - H), " ", P(x1, y0), " ", P(x0, y0 + H), "\"/>",
+                  "<polygon points=\"", P(x1, y0 - H), " ", P(x0, y0), " ", P(x1, y0 + H), "\"/>")
+        fill = s.background == "none" ? "none" : s.background
+        print(io, "<circle cx=\"$(f(xm))\" cy=\"$(f(y0 - H / 2 - r))\" r=\"$(f(r))\" fill=\"$fill\"/>")
+        print(io, "<path d=\"M", P(a.x, a.y), " H", f(x0), " M", P(x1, b.y), " H", f(b.x),
+                  " M", P(xm, pg.y), " V", f(y0 - H / 2 - 2r), " M", P(xm, ng.y), " V", f(y0 + H / 2), "\"/>")
+        return
+    end
+    ins = [gatepinpx(s, g, p) for p in gatepinnames(g)[1:end-1]]
+    out = gatepinpx(s, g, "out")
+    orlike = g.kind in (:or, :nor, :xor, :xnor)
+    xb = g.kind in (:xor, :xnor) ? x0 + 6 : x0      # the OR body sits behind the XOR's extra curve
+    if g.kind in (:inv, :buf)
+        print(io, "<polygon points=\"", P(x0, y0 - H), " ", P(x1, y0), " ", P(x0, y0 + H), "\"/>")
+    elseif g.kind in (:and, :nand)
+        xm = max(x1 - H, x0)
+        print(io, "<path d=\"M", P(x0, y0 - H), " H", f(xm), " A", f(x1 - xm), ",", f(H), " 0 0 1 ",
+                  P(xm, y0 + H), " H", f(x0), " Z\"/>")
+    else
+        bwo = x1 - xb
+        print(io, "<path d=\"M", P(xb, y0 - H), " Q", P(xb + 0.55bwo, y0 - H), " ", P(x1, y0),
+                  " Q", P(xb + 0.55bwo, y0 + H), " ", P(xb, y0 + H),
+                  " Q", P(xb + 0.25bwo, y0), " ", P(xb, y0 - H), " Z\"/>")
+        if g.kind in (:xor, :xnor)
+            print(io, "<path fill=\"none\" d=\"M", P(x0, y0 - H), " Q", P(x0 + 0.25bwo, y0), " ", P(x0, y0 + H), "\"/>")
+        end
+    end
+    if isinverting(g)
+        r = GATE_BUBBLE
+        fill = s.background == "none" ? "none" : s.background
+        print(io, "<circle cx=\"$(f(x1 + r))\" cy=\"$(f(y0))\" r=\"$(f(r))\" fill=\"$fill\"/>")
+    end
+    tip = x1 + (isinverting(g) ? 2GATE_BUBBLE : 0.0)
+    print(path, "M", P(tip, y0), " H", f(out.x))
+    bwo = x1 - xb
+    for q in ins
+        xe = orlike ? orback(x0, y0, H, 0.25bwo, q.y) : x0
+        xe > q.x && print(path, " M", P(q.x, q.y), " H", f(xe))
+        if abs(q.y - y0) > H                        # a pin beyond the body: extend its back
+            print(path, " M", P(x0, y0 + sign(q.y - y0) * H), " V", f(q.y))
+        end
+    end
+    print(io, "<path d=\"", String(take!(path)), "\"/>")
 end
 
 function render(io, s::Schematic, w::Wire, ctx)
@@ -560,6 +665,7 @@ anchors(x::Union{Ground,Supply,Port,NodeLabel,Dot,Caption}, _) = [x.at]
 anchors(v::Voltage, _) = [v.plus, v.minus]
 anchors(c::Current, _) = [c.a, c.b]
 anchors(b::Block, _) = [b.lo, b.hi, Pt(b.lo.x, b.hi.y), Pt(b.hi.x, b.lo.y)]
+anchors(g::Gate, _) = [[pin(g, p) for p in gatepinnames(g)]; g.at + Pt(0, gatehalf(g)); g.at - Pt(0, gatehalf(g))]
 
 # Bounding box of every point and every text box (text width estimated per character).
 function bbox(s::Schematic, devs, boxes)

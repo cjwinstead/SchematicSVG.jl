@@ -21,6 +21,7 @@ Schematic([
 | [`Bipole`](@ref)`(kind, a, b, label; name, note, side)` | `kind` ∈ `:R :C :L :D :V :I :sV :cV :cI :box :open :short`; drawn along a→b. For sources `a` is SPICE n+ (`+` near a; current arrow a→b). `side` = `:auto`, or `:left`/`:right` of a→b like CircuiTikZ. |
 | [`Transistor`](@ref)`(kind, name, at; xflip, yflip, label, note, w, h)` | `:npn :pnp :nmos :pmos`; pins `:B/:G`, `:C/:D`, `:E/:S` via [`pin`](@ref) or [`PinRef`](@ref), at `w` (control) and `h` (top/bottom) from the centre |
 | `SchematicSVG.Opamp(name, at; label, note, w, h, inv_up)` | pins `:inp`, `:inn`, `:out`; inputs at (−w, ±h). Not exported, so it doesn't clash with Microelectronics' `Opamp`. |
+| [`Gate`](@ref)`(kind, name, at; n, label, note, w, pitch)` | logic gate `:inv :buf :and :nand :or :nor :xor :xnor :tg`; pins `:a`, `:b`, … (`:in` for INV/BUF) and `:out`, or `:a`, `:b`, `:ng`, `:pg` for a transmission gate. Netlisted as a subcircuit instance. |
 | [`Wire`](@ref)`(points...)` | points are [`Pt`](@ref) or `PinRef(device, pin)` |
 | [`Port`](@ref)`(at, label, side; name)`, [`NodeLabel`](@ref)`(at, name, side; label)` | terminal with circle / node name only; `side` ∈ `:left :right :above :below` |
 | [`Ground`](@ref)`(at, flip=false)`, [`Supply`](@ref)`(at, label, up)`, [`Dot`](@ref)`(at)` | |

@@ -41,6 +41,8 @@ circuit units, and other keywords are [`Schematic`](@ref) settings (`xscale`, `b
 | `-\|P1` | PMOS, source on top |
 | `-\|Q1` | npn BJT, collector on top |
 | `OA1` | op-amp: + input wire from above, − input from below, output to the right |
+| `INV1` `BUF1` `AND1` `NAND1` `OR1` `NOR1` `XOR1` `XNOR1` | logic gate: inputs from the wires above, to the left of and below the word, output to the right ([Logic gates](@ref)) |
+| `TG1` | CMOS transmission gate: `a` left, `b` right, PMOS gate from above (bubble), NMOS gate from below |
 | `[p X1/amp s]` | subcircuit instance: a box with `[` and `]` in the same columns on consecutive rows ([Subcircuit instances](@ref)) |
 | `Ovgs` `O1` | open circuit with voltage marks: `+`/`−` at its ends and a label from the name (`Ovgs` → ``v_{gs}``, `O1` → none); same markers as V |
 | `gnd` `vdd` `vcc` `vss` `vee` | ground and supply rails |
@@ -56,7 +58,8 @@ Rules of thumb:
 - A `-` touching a `|` joins it, and cells where three or more wires meet get a dot
   automatically, so `+` is only needed for corners.
 - Columns must line up exactly. Use spaces, not tabs.
-- Run op-amp input wires down to the first letter of `OA1`.
+- Run op-amp input wires down to the first letter of `OA1`, and gate input wires to the
+  first letters of the gate word.
 - Default labels come from the names (`RD` → ``R_D``); override any of them with
   `labels`.
 
@@ -143,6 +146,54 @@ arrows don't change the netlist.
 
 In CircuiTikZ use `i=` on any `to[…]` ([CircuiTikZ](@ref)); for placed drawings use
 [`Current`](@ref).
+
+## Logic gates
+
+Gate words (`INV1`, `NAND2`, `NOR1`, `XOR1`, `TG1`, …) draw IEEE distinctive-shape
+symbols. A gate takes up to three inputs, in this order: the wire above the word, the
+wire ending at its left, and the wire below it (`INV` and `BUF` take one). The output
+leaves to the right. The words are recognized before the first-letter kinds, so `NOR1`
+is a gate, not an NMOS, and `INV1` is not a current source.
+
+A crossbar decoder is a natural fit: `*` connects an address line to a row and `)`
+crosses it without connecting, so editing one character rewires the decoder.
+
+```@example ascii
+decoder = """
+   a1   a1n  a0   a0n
+   |    |    |    |
+   |    *----)----)------+
+   |    |    |    |      |
+   |    |    |    *------NAND0---INV0---wl0
+   |    |    |    |
+   |    *----)----)------+
+   |    |    |    |      |
+   |    |    *----)------NAND1---INV1---wl1
+   |    |    |    |
+   *----)----)----)------+
+   |    |    |    |      |
+   |    |    |    *------NAND2---INV2---wl2
+   |    |    |    |
+   *----)----)----)------+
+   |    |    |    |      |
+             *----)------NAND3---INV3---wl3
+"""
+ascii_schematic(decoder)
+```
+
+In a netlist every gate is a subcircuit instance of a transistor-level gate: `inv`,
+`buf`, `tg`, or the kind and input count (`nand2`, `nor3`, …):
+
+```@example ascii
+print(spice_netlist(ascii_schematic(decoder)))
+```
+
+Those subcircuits are not built in; include their definitions in the netlist. To use
+another one, name it in `elements` (`"NAND0" => "nand2_fast"`) or give its `.subckt`
+line: when its terminals carry the gate's pin names (`in`/`out` for `INV` and `BUF`;
+`a`, `b`, `c`, …, `out`; `a`, `b`, `ng`, `pg` for `TG`) the nodes follow them, and
+otherwise they are taken in order, inputs top to bottom and then the output. A
+transmission gate is written `a b ng pg`.
 
 ## Captions
 

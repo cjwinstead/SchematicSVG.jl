@@ -33,6 +33,7 @@ Current
 Caption
 Block
 BlockPin
+Gate
 ```
 
 ## Annotation functions

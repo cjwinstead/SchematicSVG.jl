@@ -1124,6 +1124,76 @@ bb---[b             ]
     @test_throws ErrorException pin(blk, :nope)
 end
 
+@testset "logic gates" begin
+    # kinds from names: gate words win over the first-letter kinds
+    @test SchematicSVG.kindof("NOR1") == :gate && SchematicSVG.kindof("INV2") == :gate
+    @test SchematicSVG.kindof("TG1") == :gate && SchematicSVG.kindof("XNOR3") == :gate
+    @test SchematicSVG.kindof("N1") == :nmos && SchematicSVG.kindof("ORx") == :open
+
+    # pins and netlist order
+    near(ps, qs) = all(isapprox(p.x, q.x; atol=1e-9) && isapprox(p.y, q.y; atol=1e-9) for (p, q) in zip(ps, qs))
+    g = Gate(:nand, "NAND1", Pt(0, 0); n=3)
+    @test near([pin(g, p) for p in (:a, :b, :c, :out)], [Pt(-0.5, 0.3), Pt(-0.5, 0), Pt(-0.5, -0.3), Pt(0.5, 0)])
+    @test SchematicSVG.gatepinnames(Gate(:inv, "I", Pt(0, 0))) == ["in", "out"]
+    tg = Gate(:tg, "TG1", Pt(1, 1))
+    @test near([pin(tg, p) for p in (:a, :b, :ng, :pg)], [Pt(0.5, 1), Pt(1.5, 1), Pt(1, 0.6), Pt(1, 1.4)])
+    @test_throws ErrorException pin(g, :d)
+    @test_throws ArgumentError Gate(:mux, "M", Pt(0, 0))
+
+    # ASCII: inputs from above, the left and below (in that order), output to the right
+    s = ascii_schematic("""
+        a
+        |
+    b---NAND1---INV1---y
+        |
+        c
+
+        pg
+        |
+    x---TG1---z
+        |
+        ng
+    """)
+    gates = filter(x -> x isa Gate, s.items)
+    @test [(x.kind, x.n) for x in gates] == [(:nand, 3), (:inv, 1), (:tg, 1)]
+    @test spice_netlist(s) == "* schematic\nXNAND1 a b c n1 nand3\nXINV1 n1 y inv\nXTG1 x z ng pg tg\n.end\n"
+    svg = to_svg(s)
+    @test count("<circle", svg) >= 3                      # NAND, INV and TG bubbles (+ ports)
+    @test occursin(" A", svg)                             # the AND-shape arc
+
+    # every shape renders; inverting ones carry a bubble
+    for k in SchematicSVG.GATE_KINDS
+        x = Gate(k, "G", Pt(0, 0))
+        out = to_svg(Schematic([x]))
+        @test occursin("<path", out) || occursin("<polygon", out)
+        @test occursin("<circle", out) == (SchematicSVG.isinverting(x) || k == :tg)
+    end
+
+    # crossbar: ')' crosses without connecting, '*' connects
+    dec = ascii_schematic("""
+       a1   a0   a0n
+       |    |    |
+       *----)----)----+
+       |    |    |    |
+       |    |    *----NAND1---wl
+    """)
+    @test spice_netlist(dec) == "* schematic\nXNAND1 a1 a0n wl nand2\n.end\n"
+
+    # subcircuits: by elements, matched by pin name or by position
+    s2 = ascii_schematic("a---INV1---y"; elements=Dict("INV1" => ".subckt myinv out in"))
+    @test spice_netlist(s2) == "* schematic\nXINV1 y a myinv\n.end\n"
+    s3 = ascii_schematic("a---INV1---y"; elements=Dict("INV1" => ".subckt inv x z Wp=4u"))
+    @test spice_netlist(s3) == "* schematic\nXINV1 a y inv\n.end\n"
+    @test_throws ArgumentError schematic_netlist(ascii_schematic("a---INV1---y";
+                                                 elements=Dict("INV1" => ".subckt inv x")))
+    s4 = ascii_schematic("a---INV1---y"; elements=Dict("INV1" => (model="inv", Wp="6u")))
+    @test spice_netlist(s4) == "* schematic\nXINV1 a y inv Wp=6u\n.end\n"
+
+    # layout carries gates through
+    two = layout("a---INV1---y", "a---INV1---y"; connect=[(1, "y") => (2, "a")])
+    @test spice_netlist(two) == "* schematic\nXINV1_1 a y_1 inv\nXINV1_2 y_1 y inv\n.end\n"
+end
+
 # The Microelectronics.jl extension, when that package is available.
 if Base.find_package("Microelectronics") !== nothing
     include("microelectronics.jl")

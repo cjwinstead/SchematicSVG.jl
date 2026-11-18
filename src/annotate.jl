@@ -37,6 +37,7 @@ itemletters(it::Bipole) = get(ITEM_LETTERS, it.kind, "")
 itemletters(it::Transistor) = ITEM_LETTERS[it.kind]
 itemletters(::Opamp) = "X"
 itemletters(::Block) = "X"
+itemletters(::Gate) = "X"
 
 "Key of `d` (upper-case names) for item `it`: its drawn name, or the name with its SPICE letter."
 function lookupname(d::AbstractDict, it)
@@ -172,6 +173,9 @@ function annotate(s::Schematic, elements=(); nodes=Dict(), style::Symbol=:below)
         elseif it isa Block
             l, n = element(it)
             Block(it.name, it.lo, it.hi, it.pins, l, n)
+        elseif it isa Gate
+            l, n = element(it)
+            Gate(it.kind, it.name, it.at, it.n, l, n, it.w, it.pitch)
         elseif it isa Port
             Port(it.at, it.name, node(it), it.side)
         elseif it isa NodeLabel
